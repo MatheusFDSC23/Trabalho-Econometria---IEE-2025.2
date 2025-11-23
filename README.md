@@ -81,7 +81,7 @@ Questão 2 – tabelas (Excel):
 Observações:
 ------------------------------------------------------------
 - **Reprodutibilidade:** seed definida (ex.: set.seed(122121629)).          # DRE DO ARTHUR
-- Todo o código esta consolidado em um Arquivo em R markdown. É necessario abrir o projeto previamente e logo em seguida abrir o script dentro do projeto para que os caminhos para o arquivo de input e os diretórios de output sejam respeitados e funcionem plenamnete.
+- Todo o código esta consolidado em um Arquivo em R markdown. É necessario abrir o projeto(Econometria) previamente e logo em seguida abrir o script(trabalho_econometria), presente na pasta code, dentro do projeto. Isto para que os caminhos para o arquivo de input e os diretórios de output sejam respeitados e funcionem plenamnete.
 
 ------------------------------------------------------------
 Fim
