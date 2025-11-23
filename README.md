@@ -14,6 +14,7 @@ Curso: Econometria I – Instituto de Economia/UFRJ
 LINK PARA O ARQUIVO DO PROJETO: https://drive.google.com/drive/folders/1_uNc-hE6_GybuZwa1A2uu3UQB5o6mziF?usp=drive_link
 (Faça o download da pasta raiz(Econometria) por completo. Nela há o projeto e demais pastas)
 
+Link para GitHub: https://github.com/MatheusFDSC23/Trabalho-Econometria---IEE-2025.2.git
 
 Estrutura do projeto
 ------------------------------------------------------------
