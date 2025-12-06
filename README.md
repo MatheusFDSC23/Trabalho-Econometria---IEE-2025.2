@@ -38,6 +38,7 @@ Pacotes R utilizados:
 Arquivos de entrada
 ------------------------------------------------------------
 - /input/T2dados.xlsx → base para o estudo de repasse cambial (Questão 2)
+- /input/smallmo.dta → base para análise de tamanho da turma e manipulação das notas na Itália (Questão 3)
 
 ------------------------------------------------------------
 Saídas geradas (pasta ../output/)
@@ -76,6 +77,24 @@ Questão 2 – tabelas (Excel):
 - **Tabela 2.8.2:** ../output/Tabela_2.8.2.xlsx → repasse total do câmbio por setor
 - **Tabela 2.9:** ../output/Tabela_2.9.xlsx → Ljung–Box + Breusch–Pagan consolidados
 - **Tabela 2.10:** ../output/Tabela_2.10.xlsx → resultados com erros HAC (Newey–West)
+
+Questão 3 – tabelas (Excel):
+
+Tabela 3.1: ../output/Tabela_3.1.xlsx → estatísticas descritivas gerais
+Tabela 3.2: ../output/Tabela_3.2.xlsx → médias por região e série
+Tabela 3.4: ../output/Tabela_3.4.xlsx → teste t de balanceamento
+Tabela 3.5: ../output/Tabela_3.5.xlsx → regressões de balanceamento (simples e ajustada)
+Tabela 3.6: ../output/Tabela_3.6.xlsx → regressões por região (Norte, Centro, Sul)
+Tabela 3.7: ../output/Tabela_3.7.xlsx → impacto do monitoramento sobre fraude e notas
+Tabela 3.8: ../output/Tabela_3.8.xlsx → diferenças regionais na fraude (Norte como base)
+Tabela 3.9: ../output/Tabela_3.9.xlsx → notas por região com interação fraude × Sul
+Tabela 3.15: ../output/Tabela_3.15.xlsx → estimação IV usando clsize_hat como instrumento
+
+Questão 3 – imagens (PNG):
+
+Gráfico 3.12: ../output/Imagem_3.12.png → RDD: nota vs matrícula total (cutoff=25)
+Gráfico 3.13: ../output/Imagem_3.13.png → RDD: nota vs tamanho predito da turma
+Gráfico 3.14 DAG: ../output/Imagem_3.14_DAG.png → DAG ilustrando riscos e IV
 
 
 ------------------------------------------------------------
