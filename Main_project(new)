@@ -1,0 +1,2985 @@
+---
+title: "**Trabalho**"
+author: ""
+date: "`r format(Sys.time(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    includes:
+      in_header: cod_logo.html
+    df_print: kable
+    toc_depth: 4
+    highlight: monochrome
+    theme: paper
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+
+
+
+
+
+
+
+
+
+**Universidade Federal do Rio de Janeiro**    
+**Instituto de Economia**     
+**Curso:** Econometria I - IEE 2025.2    
+**Professor:** Vitor Perreira   
+
+###  **Autores:**     
+**Matheus Ferreira da Silva Costa**  
+**email:** matheus.costa@graduacao.ie.ufrj.br    
+**DRE:** _122144910_
+
+**Arthur Moura da Silva**     
+**email:**arthurmouradasilva@gmail.com    
+**DRE:** _122121629_
+
+**Igor Mato Grosso**    
+**email:** igor.silva@graduacao.ie.ufrj.br    
+**DRE:** _122150042_
+
+```{r include=FALSE}
+
+# Universidade Federal do Rio de Janeiro 
+# Instituto de Economia
+# Curso: Econometria - IEE
+
+# Autores: 
+
+# Matheus Ferreira da Silva Costa 
+# DRE: 122144910
+
+# Arthur 
+# DRE:122121629
+
+# Igor Mato Grosso
+# DRE: 122150042
+
+
+
+
+# Instalar pacman caso não exista
+if (!require("pacman")) install.packages("pacman")
+
+# Carregar todos os pacotes necessários
+pacman::p_load(
+  readstata13, dplyr, ggplot2, stargazer, AER,
+  lmtest, sandwich, car, plotly,
+  extrafont, rmdformats, showtext, readxl,
+  purrr, broom, lubridate, tibble,
+  spuRs, knitr, kableExtra,
+  writexl, htmlwidgets, ggdag, 
+)
+
+# Evitar notação científica
+options(scipen = 999)
+
+# Questão (5)
+
+
+# ================================================================
+# EXERCÍCIO DE ECONOMETRIA: ANÁLISE DO MERCADO DE TRABALHO BRASILEIRO
+# Equação de Mincer para Retornos à Educação
+# ================================================================
+
+set.seed(122121629) # (DRE do Arthur)
+
+# ================================================================
+# PARTE 1: GERAÇÃO DOS DADOS
+# ================================================================
+
+# Tamanho da amostra
+n <- 2000
+
+# Gera variáveis demográficas
+data <- data.frame(
+  # Educação: anos de estudo (4 a 18 anos, média ~9.5)
+  education = pmax(4, pmin(18, round(rnorm(n, mean = 9.5, sd = 3.5)))),
+  
+  # Sexo: 1 = masculino, 0 = feminino (52% homens)
+  male = rbinom(n, 1, 0.52),
+  
+  # Raça: 1 = branco, 0 = preto/pardo (45% brancos)
+  white = rbinom(n, 1, 0.45),
+  
+  # Experiência: anos de experiência (0 a 45)
+  experience = pmax(0, pmin(45, round(rnorm(n, mean = 15, sd = 10))))
+)
+
+# Gera regiões (distribuição populacional aproximada)
+regions <- c("North", "Northeast", "Southeast", "South", "CenterWest")
+region_probs <- c(0.09, 0.27, 0.42, 0.14, 0.08)
+
+data$region <- sample(regions, n, replace = TRUE, prob = region_probs)
+
+# Dummies de região (Southeast como referência)
+data$north      <- ifelse(data$region == "North", 1, 0)
+data$northeast  <- ifelse(data$region == "Northeast", 1, 0)
+data$south      <- ifelse(data$region == "South", 1, 0)
+data$centerwest <- ifelse(data$region == "CenterWest", 1, 0)
+
+# ================================================================
+# PARTE 2: GERAÇÃO DE SALÁRIOS - ERROS HOMOCEDÁSTICOS
+# ================================================================
+
+# Parâmetros da equação de Mincer
+beta_0        <- 6.8
+beta_edu      <- 0.13
+beta_male     <- 0.25
+beta_white    <- 0.18
+beta_exp      <- 0.035
+beta_exp2     <- -0.0005
+
+# Efeitos regionais
+beta_north      <- -0.15
+beta_northeast  <- -0.20
+beta_south      <- 0.08
+beta_centerwest <- 0.05
+
+# Gera log-salários com erros HOMOCEDÁSTICOS
+data$log_wage_homo <- beta_0 +
+  beta_edu * data$education +
+  beta_male * data$male +
+  beta_white * data$white +
+  beta_exp * data$experience +
+  beta_exp2 * data$experience^2 +
+  beta_north * data$north +
+  beta_northeast * data$northeast +
+  beta_south * data$south +
+  beta_centerwest * data$centerwest +
+  rnorm(n, mean = 0, sd = 0.35)
+
+# Converte para níveis (salários)
+data$wage_homo <- exp(data$log_wage_homo)
+
+# ================================================================
+# PARTE 3: GERAÇÃO DE SALÁRIOS - ERROS HETEROCEDÁSTICOS
+# ================================================================
+
+# Variância heterocedástica crescente com educação e experiência
+error_variance <- 0.25 + 0.015 * data$education + 0.005 * data$experience
+
+# Gera erros heterocedásticos
+hetero_errors <- rnorm(n, mean = 0, sd = sqrt(error_variance))
+
+# Log-salários com erros HETEROCEDÁSTICOS
+data$log_wage_hetero <- beta_0 +
+  beta_edu * data$education +
+  beta_male * data$male +
+  beta_white * data$white +
+  beta_exp * data$experience +
+  beta_exp2 * data$experience^2 +
+  beta_north * data$north +
+  beta_northeast * data$northeast +
+  beta_south * data$south +
+  beta_centerwest * data$centerwest +
+  hetero_errors
+
+# Converte para níveis
+data$wage_hetero <- exp(data$log_wage_hetero)
+
+```
+
+
+```{r setup, include=FALSE}
+
+#Fonte Times New Roman para os graficos via pacote showtext
+showtext_auto()
+font_add("Times New Roman", regular = "C:/Windows/Fonts/times.ttf")
+```
+
+```{html include=FALSE}
+<style>
+table, th, td {
+  font-family: "Times New Roman", serif !important;
+}
+</style>
+```
+
+
+
+# **Questão 01** 
+
+## **01.1) Tabela de Estatísticas Descritivas** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.1:</b> Utilizando o pacote stargazer, faça uma tabela de estatísticas descritivas da sua base de dados.Observe a sintaxe do comando stargazer (não esqueça de instalar e carregar o pacote antes de rodá-lo). 
+
+A tabela deverá conter a média, a mediana, o desvio padrão, o valor mínimo, o valor máximo, e o número de observações. Observe que se você está escrevendo em markdown, a tabela deverá ser feita em html. Se for feito no overleaf, a tabela deve ser salva em .tex.
+
+</div>
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+# Função que calcula estatísticas para uma variável (numérica ou não)
+summarise_var <- function(x){
+  if(is.numeric(x)){
+    tib <- tibble(
+      Mean   = mean(x, na.rm = TRUE),
+      Median = median(x, na.rm = TRUE),
+      SD     = sd(x, na.rm = TRUE),
+      Min    = as.character(min(x, na.rm = TRUE)),
+      Max    = as.character(max(x, na.rm = TRUE)),
+      N      = sum(!is.na(x))
+    )
+  } else {
+    tib <- tibble(
+      Mean   = NA_real_,
+      Median = NA_real_,
+      SD     = NA_real_,
+      Min    = as.character(min(x, na.rm = TRUE)),
+      Max    = as.character(max(x, na.rm = TRUE)),
+      N      = sum(!is.na(x))
+    )
+  }
+  tib
+}
+
+# Aplica a todas as colunas e monta a tabela final (uma linha por variável)
+tabela_desc <- map_dfr(names(data), ~ {
+  varname <- .
+  stats <- summarise_var(data[[varname]])
+  stats %>% add_column(Variavel = varname, .before = 1)
+}, .id = NULL)
+
+# Ajustes de formatação: arredonda números e organiza colunas
+tabela_desc <- tabela_desc %>%
+  mutate(
+    Mean   = round(Mean, 3),
+    Median = round(Median, 3),
+    SD     = round(SD, 3),
+    Min    = ifelse(is.na(as.numeric(Min)), Min, sprintf("%.3f", as.numeric(Min))),
+    Max    = ifelse(is.na(as.numeric(Max)), Max, sprintf("%.3f", as.numeric(Max)))
+  ) %>%
+  dplyr::select(Variavel, Mean, Median, SD, Min, Max, N)
+
+# Exibe com kable
+kable(tabela_desc,
+      caption = "Tabela 1.1 – Estatísticas Descritivas da Base de Dados",
+      digits = 3,
+      format = "html") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "condensed"))
+
+
+```
+
+
+```{r include=FALSE}
+write_xlsx(tabela_desc, "../output/Tabela_1.1.xlsx")
+```
+
+## **01.2) Scatterplot: Salário vs Educação** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.2:</b> Utilizando o pacote <i>ggplot2</i>, faça um scatterplot do salário (eixo y) contra educação em anos de estudo. Faça uma regressão linear utilizando o comando <code>lm</code> e plote os valores preditos no mesmo gráfico.<br><br>
+Faça o mesmo, agora com o log do salário.
+</div>
+
+
+### 01.2.1) Salário vs Educação {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=TRUE, fig.align='center'}
+
+theme_set(theme_classic())
+
+plot1.2.1 <- ggplot(data, aes(x = education, y = wage_homo)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  scale_y_continuous(
+    limits = c(0, 50000),
+    breaks = seq(5000, 50000, 5000),
+    labels = paste0(seq(5, 50, 5), "mil")
+  ) +
+  
+  scale_x_continuous(
+    limits = c(4, 18),
+    breaks = seq(4, 18, 2)
+  ) +
+  
+  labs(
+    title = "Salário vs Educação (anos de estudo)",
+    x = "Educação (anos de estudo)",
+    y = "Salário (R$)"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(family = "TT Times New Roman", hjust = 0.5, size = 22),
+    axis.title = element_text(family = "TT Times New Roman", size = 16),
+    axis.text = element_text(family = "TT Times New Roman", size = 16)
+  )
+plot1.2.1
+
+```
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.2.1.png", plot = plot1.2.1, width = 8, height = 6, dpi = 300)
+```
+
+### 01.2.2) Log do Salário vs Educação {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=TRUE, fig.align='center'}
+theme_set(theme_classic())
+
+# limites e breaks do eixo y (log do salário) baseados nos dados
+ymin <- floor(min(data$log_wage_homo, na.rm = TRUE))
+ymax <- ceiling(max(data$log_wage_homo, na.rm = TRUE))
+ybreaks <- seq(ymin, ymax, by = 0.5)
+
+plot1.2.2 <- ggplot(data, aes(x = education, y = log_wage_homo)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  scale_y_continuous(
+    limits = c(ymin, ymax),
+    breaks = ybreaks
+  ) +
+  
+  scale_x_continuous(
+    limits = c(4, 18),
+    breaks = seq(4, 18, 2)
+  ) +
+  
+  labs(
+    title = "Log do Salário vs Educação (anos de estudo)",
+    x = "Educação (anos de estudo)",
+    y = "Log do Salário"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(family = "TT Times New Roman", hjust = 0.5, size = 22),
+    axis.title = element_text(family = "TT Times New Roman", size = 18),
+    axis.text = element_text(family = "TT Times New Roman", size = 18)
+  )
+
+plot1.2.2
+```
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.2.2.png", plot = plot1.2.2, width = 8, height = 6, dpi = 300)
+```
+
+## **01.3) Scatterplot: Salário(log) vs Exp.** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.3:</b> Repita mais uma vez o exercício, plotando o log do salário (eixo y) contra a experiência.
+</div>
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE, fig.align='center'}
+
+
+theme_set(theme_classic())
+
+plot1.3 <- ggplot(data, aes(x = experience, y = log_wage_homo)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  scale_y_continuous(
+    breaks = seq(floor(min(data$log_wage_homo)), 
+                 ceiling(max(data$log_wage_homo)), 0.5)
+  ) +
+  
+  scale_x_continuous(
+    limits = c(0, 45),
+    breaks = seq(0, 45, 5)
+  ) +
+  
+  labs(
+    title = "Log do Salário vs Experiência",
+    x = "Experiência (anos)",
+    y = "Log do Salário"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(family = "TT Times New Roman", hjust = 0.5, size = 22),
+    axis.title = element_text(family = "TT Times New Roman", size = 18),
+    axis.text = element_text(family = "TT Times New Roman", size = 18)
+  )
+
+plot1.3
+```
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.3.png", plot = plot1.3, width = 8, height = 6, dpi = 300)
+```
+
+## **01.4) Regressões do log do Salário** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.4:</b> Utilizando o comando <code>lm</code>, rode uma regressão do log do salário em:<br>
+• Anos de estudo<br>
+• Experiência<br>
+• O quadrado da experiência<br>
+• Dummies regionais<br>
+• Dummy de sexo<br>
+• Dummy de raça<br><br>
+Caso seja necessário modificar ou criar alguma variável, utilize o pacote <i>dplyr</i>, e não R-base. Note que as dummies já estão prontas; caso fosse necessário criá-las, vocês poderiam transformar a variável categórica em factor, por exemplo:<br>
+<code>data$regiao <- relevel(factor(data$regiao), ref = "Southeast")</code>
+</div>
+
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+
+# Criando a variável experiência ao quadrado
+data <- data %>%
+  mutate(
+    experience2 = experience^2
+  )
+
+# Rodando a regressão
+reg1 <- lm(
+  log_wage_homo ~ education + experience + experience2 +
+    male + white +
+    north + northeast + south + centerwest,
+  data = data
+)
+
+summary(reg1)
+
+```
+
+
+```{r include=FALSE}
+# salvar resumo da regressão em Excel
+reg1_tidy <- tidy(reg1)   # broom gera tabela com coeficientes, erros, p-values
+write_xlsx(reg1_tidy, "../output/Tabela_1.4.xlsx")
+```
+
+## **01.5) Resultados da Regressão** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.5:</b> Utilizando o pacote <i>stargazer</i>, reporte os resultados da regressão (tabela com coeficientes, erros padrão, níveis de significância, N, R², R² ajustado, etc.). (No RMarkdown use <code>results='asis'</code> no chunk para renderizar a tabela HTML.)
+</div>
+
+
+```{r reg1_model, echo=FALSE}
+reg1 <- lm(log_wage_homo ~ education + experience + I(experience^2) +
+             north + northeast + south + centerwest +
+             male + white, data = data)
+
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis', fig.align='center'}
+
+stargazer(
+  reg1,
+  type = "html",
+  title = "<span style='font-family:Times New Roman;'>Tabela 1.5 – Resultados da Regressão</span>",
+  dep.var.labels = "Log do Salário",
+  covariate.labels = c(
+    "Educação",
+    "Experiência",
+    "Experiência²",
+    "Região Norte",
+    "Região Nordeste",
+    "Região Sul",
+    "Região Centro-Oeste",
+    "Sexo Masculino",
+    "Raça Branca"
+  ),
+  align = TRUE,
+  single.row = FALSE,
+  no.space = TRUE,
+  column.sep.width = "5pt"
+)
+```
+
+
+```{r include=FALSE}
+#SALVANDO
+# Organizar resultados em formato de tabela
+reg1_tidy <- tidy(reg1)   # coeficientes, erros padrão, estatísticas t e p-values
+reg1_glance <- glance(reg1) # estatísticas do modelo (R², AIC, etc.)
+
+# Salvar em Excel: uma aba com coeficientes e outra com estatísticas do modelo
+write_xlsx(
+  list(
+    Coeficientes = reg1_tidy,
+    Estatisticas = reg1_glance
+  ),
+  path = "../output/Tabela_1.5.xlsx"
+)
+```
+
+## **01.6) Valores Preditos + Gráfico 3D** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.6:</b> Calcule os valores preditos e plote um gráfico 3D relacionando o log do salário, a experiência e os anos de estudo. Utilize o pacote <i>plotly</i>.
+</div>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# 1) Criar valores preditos do modelo
+data$pred_logwage <- predict(reg1)
+
+# 2) Criar gráfico 3D com plotly
+plot1.6 <- plot_ly(
+  data = data,
+  x = ~experience,
+  y = ~education,
+  z = ~pred_logwage,
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 3, opacity = 0.6)
+) %>%
+  layout(
+    title = list(
+      text = "Gráfico 3D: Log do Salário Predito vs Experiência e Educação",
+      font = list(
+        family = "TT Times New Roman",
+        size   = 22
+      ),
+      x = 0.5   # centraliza o título
+    ),
+    
+    scene = list(
+      xaxis = list(
+        title = "Experiência (anos)",
+        titlefont = list(family = "TT Times New Roman", size = 18),
+        tickfont  = list(family = "TT Times New Roman", size = 14)
+      ),
+      yaxis = list(
+        title = "Educação (anos de estudo)",
+        titlefont = list(family = "TT Times New Roman", size = 18),
+        tickfont  = list(family = "TT Times New Roman", size = 14)
+      ),
+      zaxis = list(
+        title = "Log do Salário Predito",
+        titlefont = list(family = "TT Times New Roman", size = 18),
+        tickfont  = list(family = "TT Times New Roman", size = 14)
+      )
+    ),
+
+    font = list(family = "TT Times New Roman"))  # fonte global
+
+plot1.6
+```
+
+
+```{r include=FALSE}
+saveWidget(plot1.6, "../output/Imagem_1.6.html", selfcontained = TRUE)
+```
+
+## **01.7) Histograma dos Resíduos** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.7:</b> Calcule os resíduos da regressão e tire o quadrado dos resíduos. Plote um histograma dos resíduos.
+</div>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, fig.align='center'}
+
+
+# 1) Calcular resíduos
+data <- data %>%
+  mutate(
+    residuos = resid(reg1),
+    residuos2 = residuos^2
+  )
+
+# 2) Histograma dos resíduos
+plot1.7 <- ggplot(data, aes(x = residuos)) +
+  geom_histogram(bins = 30, alpha = 0.7, fill = "grey60", color = "black") +
+  labs(
+    title = "Histograma dos Resíduos",
+    x = "Resíduos",
+    y = "Frequência"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(
+      family = "TT Times New Roman",
+      hjust = 0.5,
+      size = 22
+    ),
+    axis.title = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    ),
+    axis.text = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    )
+  )
+
+plot1.7 
+
+```
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.7.png", plot = plot1.7, width = 8, height = 6, dpi = 300)
+```
+
+## **01.8) Utilizando log_wage_hetero** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.8:</b> Refaça os itens 1.4, 1.5, 1.6 e 1.7 utilizando a variável <code>log_wage_hetero</code>. O que mudou no gráfico dos resíduos contra os anos de estudo? (Inclua os gráficos resíduos vs educação e resíduos² vs educação para comparação.)
+</div>
+
+### 1.8.1) Regressões (log_wage_hetero) {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Regressão substituindo log_wage_homo por log_wage_hetero
+reg_hetero <- lm(
+  log_wage_hetero ~ education + experience + experience2 +
+    north + northeast + south + centerwest +
+    male + white,
+  data = data
+)
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results="asis"}
+
+stargazer(
+  reg_hetero,
+  type = "html",
+  title = "Regressão com log_wage_hetero",
+  dep.var.labels = "Log do Salário (Heterogêneo)",
+  covariate.labels = c(
+    "Educação",
+    "Experiência",
+    "Experiência²",
+    "Região Norte",
+    "Região Nordeste",
+    "Região Sul",
+    "Região Centro-Oeste",
+    "Sexo Masculino",
+    "Raça Branca"
+  ),
+  digits = 3
+)
+
+```
+
+```{r include = FALSE}
+# --- Regressão 1.8.1 com log_wage_hetero ---
+reg_hetero <- lm(
+  log_wage_hetero ~ education + experience + experience2 +
+    north + northeast + south + centerwest +
+    male + white,
+  data = data
+)
+
+# Organizar resultados em tabelas
+reg_hetero_tidy   <- tidy(reg_hetero)   # coeficientes, erros padrão, p-values
+reg_hetero_glance <- glance(reg_hetero) # estatísticas do modelo (R², etc.)
+
+# Salvar em Excel (duas abas)
+write_xlsx(
+  list(
+    Coeficientes = reg_hetero_tidy,
+    Estatisticas = reg_hetero_glance
+  ),
+  path = "../output/Tabela_1.8.xlsx"
+)
+```
+
+### 1.8.2) Gráfico 3D – Preditos (log_wage_hetero) {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# Valores preditos para o modelo hetero
+data$pred_hetero <- predict(reg_hetero)
+
+# Gráfico 3D
+plot1.8.2 <- plot_ly(
+  data = data,
+  x = ~experience,
+  y = ~education,
+  z = ~pred_hetero,
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 3, opacity = 0.6)
+) %>%
+  layout(
+    title = list(
+      text = "Gráfico 3D – Preditos (log_wage_hetero)",
+      font = list(
+        family = "TT Times New Roman",
+        size = 22
+      ),
+      x = 0.5  # centraliza o título
+    ),
+    
+    scene = list(
+      xaxis = list(
+        title = "Experiência",
+        titlefont = list(family = "TT Times New Roman", size = 18),
+        tickfont  = list(family = "TT Times New Roman", size = 14)
+      ),
+      yaxis = list(
+        title = "Anos de Estudo",
+        titlefont = list(family = "TT Times New Roman", size = 18),
+        tickfont  = list(family = "TT Times New Roman", size = 14)
+      ),
+      zaxis = list(
+        title = "Log Salário Predito",
+        titlefont = list(family = "TT Times New Roman", size = 18),
+        tickfont  = list(family = "TT Times New Roman", size = 14)
+      )
+    ),
+
+    font = list(family = "TT Times New Roman")
+  )
+plot1.8.2
+
+```
+
+```{r include=FALSE}
+saveWidget(plot1.8.2, "../output/Imagem_1.8.2.html", selfcontained = TRUE)
+```
+
+### 1.8.3) Histograma de Residuos - Modelo Hetero {.tabset .tabset-fade}
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, fig.align='center'}
+
+data <- data %>%
+  mutate(
+    residuos_hetero = resid(reg_hetero),
+    residuos2_hetero = residuos_hetero^2
+  )
+
+# Histograma
+plot1.8.3 <- ggplot(data, aes(x = residuos_hetero)) +
+  geom_histogram(bins = 30, alpha = 0.7, fill = "grey60", color = "black") +
+  labs(
+    title = "Histograma dos Resíduos – Modelo Hetero",
+    x = "Resíduos",
+    y = "Frequência"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(
+      family = "TT Times New Roman",
+      hjust = 0.5,
+      size = 22
+    ),
+    axis.title = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    ),
+    axis.text = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    )
+  )
+
+plot1.8.3
+
+```
+
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.8.3.png", plot = plot1.8.3, width = 8, height = 6, dpi = 300)
+```
+
+### 1.8.4) Resíduos vs Educação (log_wage_hetero) {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, fig.align='center'}
+plot1.8.4 <- ggplot(data, aes(x = education, y = residuos_hetero)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(
+    title = "Resíduos vs Educação – Modelo com log_wage_hetero",
+    x = "Educação (anos)",
+    y = "Resíduos"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(
+      family = "TT Times New Roman",
+      hjust = 0.5,
+      size = 22
+    ),
+    axis.title = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    ),
+    axis.text = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    )
+  )
+plot1.8.4
+
+```
+
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.8.4.png", plot = plot1.8.4, width = 8, height = 6, dpi = 300)
+```
+
+### 1.8.5) Resíduos² vs Educação (log_wage_hetero) {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, fig.align='center'}
+plot1.8.5<- ggplot(data, aes(x = education, y = residuos2_hetero)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE, color = "red") +
+  labs(
+    title = "Resíduos² vs Educação – Modelo com log_wage_hetero",
+    x = "Educação (anos)",
+    y = "Resíduos²"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(
+      family = "TT Times New Roman",
+      hjust = 0.5,
+      size = 22
+    ),
+    axis.title = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    ),
+    axis.text = element_text(
+      family = "TT Times New Roman",
+      size = 16
+    )
+  )
+plot1.8.5
+
+```
+
+
+```{r include=FALSE}
+ggsave("../output/Imagem_1.8.5.png", plot = plot1.8.5, width = 8, height = 6, dpi = 300)
+```
+
+
+
+### 1.8.6) Análise{.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+A utilização da variável log_wage_hetero em comparação com log_wage_homo resultou em uma queda expressiva no poder explicativo do modelo, com o R² passando de 0,665 para 0,360. Essa redução indica maior complexidade ou ruído na relação entre as variáveis explicativas e a nova variável dependente. Além disso, os gráficos de resíduos evidenciam heterocedasticidade, confirmando a violação da hipótese de variância constante dos erros.
+
+Em termos das estimativas, os erros‑padrão aumentaram significativamente, reduzindo a precisão estatística e a significância de algumas variáveis, como a Região Centro‑Oeste e a Região Norte. Embora os sinais dos coeficientes tenham se mantido consistentes, os retornos da educação e da experiência apresentaram leves aumentos, enquanto os prêmios salariais de gênero e raça sofreram pequenas reduções. Esses resultados reforçam a necessidade de métodos robustos, como erros‑padrão consistentes ou transformações adequadas, para lidar com a heteroscedasticidade presente nos dados.
+
+</div>
+
+## **01.9) Teste de White** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.9:</b> Faça um teste de White para testar a presença de heterocedasticidade na regressão do item 1.4 quando se utiliza a variável <code>log_wage_homo</code>.<br><br>
+Exemplo: <code>library(lmtest); bptest(reg1, ~ fitted(reg1) + I(fitted(reg1)^2))</code>. Reporte o resultado (p-valor, estatística).
+</div>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Teste de White para heterocedasticidade no modelo do item 1.4
+white_test <- bptest(reg1, ~ fitted(reg1) + I(fitted(reg1)^2))
+
+# Extrair resultados em data.frame
+res_white <- data.frame(
+  Estatistica = white_test$statistic,
+  Gl          = white_test$parameter,
+  Pvalor      = white_test$p.value,
+  Metodo      = white_test$method
+)
+
+# Salvar em Excel
+write_xlsx(res_white, "../output/Tabela_1.9.xlsx")
+white_test
+```
+
+
+## **01.10) Teste de White**(log_wage_hetero){.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.10:</b> Repita o teste de White quando rodamos a variável <code>log_wage_hetero</code>.<br><br>
+Exemplo: <code>bptest(reg2, ~ fitted(reg2) + I(fitted(reg2)^2))</code>. Reporte o resultado (use <i>stargazer</i> se quiser apresentar estatísticas em tabela).
+</div>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# Regressão usando log_wage_hetero
+reg2 <- lm(
+  log_wage_hetero ~ education + experience + experience2 +
+    north + northeast + south + centerwest +
+    male + white,
+  data = data
+)
+
+# Teste de White
+white_test_reg2 <- bptest(reg2, ~ fitted(reg2) + I(fitted(reg2)^2))
+
+
+
+# Extrair resultados em data.frame
+res_reg2 <- data.frame(
+  Modelo     = "log_wage_hetero",
+  Estatistica = white_test_reg2$statistic,
+  Gl          = white_test_reg2$parameter,
+  Pvalor      = white_test_reg2$p.value,
+  Metodo      = white_test_reg2$method
+)
+
+# Salvar em Excel
+write_xlsx(res_reg2, "../output/Tabela_1.10.xlsx")
+
+# Mostrar no relatório
+white_test_reg2
+```
+
+
+## **01.11) Equação Minceriana** (por FGLS) {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.11:</b> Reestime a equação minceriana por FGLS. Reporte o resultado. As estimativas ficaram mais parecidas com os parâmetros iniciais do DGP?<br><br>
+Exemplo prático: estime <code>sigma2_hat <- resid(reg2)^2</code> e depois <code>lm(..., weights = 1/sigma2_hat)</code>.
+</div>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# 1. Resíduos ao quadrado do modelo heterocedástico
+sigma2_hat <- resid(reg2)^2
+
+# 2. Estimação FGLS usando pesos = 1/sigma2_hat
+reg_fgls <- lm(
+  log_wage_hetero ~ education + experience + experience2 +
+    north + northeast + south + centerwest +
+    male + white,
+  data = data,
+  weights = 1 / sigma2_hat
+)
+
+# Salvar resultados da FGLS (1.11) em Excel
+reg_fgls_tidy   <- tidy(reg_fgls)    # coeficientes, erros padrão, p-values
+reg_fgls_glance <- glance(reg_fgls)  # estatísticas do modelo (R², etc.)
+
+write_xlsx(
+  list(
+    Coeficientes = reg_fgls_tidy,
+    Estatisticas = reg_fgls_glance
+  ),
+  path = "../output/Tabela_1.11.xlsx"
+)
+
+```
+
+### 1.11.1) reg_fgls {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# 3. Resultado
+summary(reg_fgls)
+```
+
+
+### 1.11.2) Análise {.tabset .tabset-fade}
+
+<div style=" 
+   background-color:#ffffff; 
+   padding:15px;  
+   border-radius:6px; 
+   margin:15px 0; 
+   font-family: 'Times New Roman'; 
+   text-align: justify; 
+   "> 
+  
+As estimativas obtidas por FGLS apresentam valores muito próximos aos parâmetros iniciais do DGP. Os coeficientes de educação, experiência e experiência ao quadrado retornam praticamente aos valores verdadeiros, enquanto as variáveis de região, sexo e raça também convergem para magnitudes mais consistentes com o modelo gerador dos dados. Os erros padrão tornam-se significativamente menores e a precisão das estimativas aumenta substancialmente. Portanto, o FGLS produz resultados claramente mais alinhados aos parâmetros originais do DGP do que o modelo estimado por OLS com heterocedasticidade. 
+</div>
+
+
+
+## **01.12) Utilizando Amostra** (n = 200 mil){.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão 1.12:</b> Rode novamente o código de geração dos dados com uma amostra de 200.000 observações. Estime a equação minceriana para <code>log_wage_hetero</code> por OLS e por FGLS. Compare os resultados com os encontrados quando temos apenas 2.000 observações (comente diferenças em coeficientes, erros-padrão e eficiência).
+</div>
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+set.seed(122121629)
+
+N_big <- 200000  # nova amostra
+
+education <- rnorm(N_big, mean = 9.5, sd = 3.3)
+experience <- rpois(N_big, lambda = 16)
+experience2 <- experience^2
+
+male  <- rbinom(N_big, 1, 0.53)
+white <- rbinom(N_big, 1, 0.45)
+
+regions <- c("North", "Northeast", "South", "CenterWest", "Southeast")
+region <- sample(regions, N_big, replace = TRUE, prob = c(0.08, 0.27, 0.12, 0.08, 0.45))
+
+north      <- ifelse(region == "North", 1, 0)
+northeast  <- ifelse(region == "Northeast", 1, 0)
+south      <- ifelse(region == "South", 1, 0)
+centerwest <- ifelse(region == "CenterWest", 1, 0)
+
+# Parâmetros estruturais
+beta0 <- 6.7
+beta1 <- 0.13
+beta2 <- 0.035
+beta3 <- -0.0005
+beta4 <- -0.10
+beta5 <- -0.20
+beta6 <- 0.10
+beta7 <- 0.07
+beta8 <- 0.25
+beta9 <- 0.20
+
+# Heterocedasticidade artificial
+sigma <- exp(0.02 * education)
+
+error_hetero <- rnorm(N_big, 0, sigma)
+
+log_wage_hetero <- beta0 + beta1*education + beta2*experience +
+  beta3*experience2 + beta4*north + beta5*northeast +
+  beta6*south + beta7*centerwest + beta8*male + beta9*white +
+  error_hetero
+
+# Base final
+data_big <- data.frame(
+  education, experience, experience2,
+  male, white, region,
+  north, northeast, south, centerwest,
+  log_wage_hetero
+)
+
+# Estimação por OLS
+reg_ols_big <- lm(log_wage_hetero ~ education + experience + experience2 +
+                    north + northeast + south + centerwest + male + white,
+                  data = data_big)
+
+# Estimação por FGLS (weights = 1/sigma2_hat)
+sigma2_hat_big <- resid(reg_ols_big)^2
+
+reg_fgls_big <- lm(log_wage_hetero ~ education + experience + experience2 +
+                     north + northeast + south + centerwest + male + white,
+                   data = data_big,
+                   weights = 1/sigma2_hat_big)
+
+# --- Questão 1.12: OLS ---
+reg_ols_big_tidy   <- tidy(reg_ols_big)    # coeficientes, erros padrão, p-values
+reg_ols_big_glance <- glance(reg_ols_big)  # estatísticas do modelo (R², etc.)
+
+write_xlsx(
+  list(
+    Coeficientes = reg_ols_big_tidy,
+    Estatisticas = reg_ols_big_glance
+  ),
+  path = "../output/Tabela_1.12.1.xlsx"
+)
+
+
+# --- Questão 1.12: FGLS ---
+reg_fgls_big_tidy   <- tidy(reg_fgls_big)
+reg_fgls_big_glance <- glance(reg_fgls_big)
+
+write_xlsx(
+  list(
+    Coeficientes = reg_fgls_big_tidy,
+    Estatisticas = reg_fgls_big_glance
+  ),
+  path = "../output/Tabela_1.12.2.xlsx"
+)
+```
+
+### 1.12.1) reg_ols_big {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+summary(reg_ols_big)
+```
+
+### 1.12.2) reg_fgls_big {.tabset .tabset-fade}
+```{r}
+summary(reg_fgls_big)
+
+```
+
+### 1.12.3) Análise{.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+  text-align: justify;
+">
+Ao ampliar a amostra de 2.000 para 200.000 observações, observa-se um aumento significativo na precisão das estimativas da equação minceriana. Os coeficientes estimados por OLS na amostra grande permanecem próximos aos valores estruturais do DGP, mas os erros-padrão tornam-se muito menores, refletindo maior eficiência estatística. Ainda assim, a heterocedasticidade artificial continua afetando o modelo OLS: o R² permanece baixo e os erros-padrão seguem inflados em comparação ao FGLS, indicando que o aumento do tamanho amostral não elimina o problema causado pela variância não constante dos erros.
+
+Quando utilizamos FGLS na amostra grande, as estimativas tornam-se extremamente precisas. Os coeficientes praticamente coincidem com os parâmetros verdadeiros do DGP e os erros-padrão são reduzidos a valores próximos de zero, revelando forte ganho de eficiência. Além disso, o R² do modelo FGLS aproxima-se de 1, evidenciando que o procedimento corrige adequadamente a heterocedasticidade gerada no processo de simulação. Comparando com os resultados obtidos com apenas 2.000 observações, nota-se que tanto OLS quanto FGLS melhoram em precisão na amostra ampliada, mas o ganho é muito mais expressivo no FGLS, que recupera quase integralmente os parâmetros estruturais e elimina a distorção causada pela variância heterogênea. Portanto, o aumento da amostra reforça a diferença de eficiência entre os dois estimadores e demonstra que FGLS desempenha substancialmente melhor em contextos com heterocedasticidade conhecida ou estimável.
+</div>
+
+
+
+
+# **Questão 02: Repasse cambial** 
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+<b>Questão (a):</b><br><br>
+
+Considere o seguinte modelo para estimar o repasse cambial para os preços do setor escolhido:
+<br><br>
+&emsp;&emsp;<b>SetorXX<sub>t</sub> = α + β<sub>1</sub> Câmbio<sub>t</sub> + β<sub>2</sub> IBC-Br<sub>t</sub></b>
+<br><br>
+A regressão será estimada utilizando os dados da base <i>T2dados.xlsx</i>, onde:<br>
+• <b>SetorXX</b>: variação percentual mensal de preços do setor analisado;<br>
+• <b>Câmbio</b>: variação percentual mensal do câmbio (R$/US$);<br>
+• <b>IBC-Br</b>: variação mensal da atividade econômica brasileira.<br><br>
+
+A seguir, estimamos o modelo no R com o pacote <b>lm()</b>:
+
+</div>
+
+```{r include=FALSE}
+
+
+# LER BASE DE DADOS
+
+dados <- read_excel("../input/T2dados.xlsx")
+setores <- paste0("setor", sprintf("%02d", 0:23))
+
+dummies <- c("fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez")
+
+```
+
+
+## **02.3) Interpretação dos Coeficientes** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+
+<b>Questão 02.3:</b> Interprete os coeficientes. Os sinais dos coeficientes estão corretos? Qual é o repasse cambial para os preços?
+
+</div>
+
+```{r include=FALSE}
+
+# IMPORTAR E PREPARAR BASE
+caminho <- "../input/T2dados.xlsx"
+df <- read_xlsx(caminho)
+
+df <- df %>% 
+  rename(data = ...1) %>% 
+  mutate(data = as.Date(data, origin = "1899-12-30"))
+
+df <- df %>% mutate(month = factor(month(data)))
+
+df <- df %>% mutate(cambio_lag1 = lag(cambio, 1))
+
+setores <- grep("^setor", names(df), value = TRUE)
+
+# FUNÇÃO PARA ESTIMAR MODELO COM PURRR
+
+rodar_modelo <- function(setor) {
+  
+  df_temp <- df %>% mutate(y_lag1 = lag(.data[[setor]], 1))
+  
+  form <- as.formula(
+    paste0(setor, " ~ cambio + cambio_lag1 + ibcbr + y_lag1 + month")
+  )
+  
+  mod <- lm(form, data = df_temp)
+  
+  tibble(
+    setor       = setor,
+    beta_cambio = coef(mod)["cambio"],
+    beta_cambio_lag1 = coef(mod)["cambio_lag1"],
+    beta_ibcbr  = coef(mod)["ibcbr"],
+    beta_y_lag1 = coef(mod)["y_lag1"],
+    p_cambio        = summary(mod)$coef["cambio","Pr(>|t|)"],
+    p_cambio_lag1   = summary(mod)$coef["cambio_lag1","Pr(>|t|)"],
+    p_ibcbr         = summary(mod)$coef["ibcbr","Pr(>|t|)"],
+    p_y_lag1        = summary(mod)$coef["y_lag1","Pr(>|t|)"],
+    r2          = summary(mod)$r.squared
+  )
+}
+
+# RODAR MODELOS COM PURRR
+
+tabela <- purrr::map_dfr(setores, rodar_modelo)
+
+
+```
+
+### 2.3.1) Tabela 2.3 – Coeficientes Estimados por Setor{.tabset .tabset-fade}
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+# Arredondar os valores para apresentação
+tabela_formatada <- tabela %>%
+  mutate(
+    beta_cambio       = round(beta_cambio, 4),
+    beta_cambio_lag1  = round(beta_cambio_lag1, 4),
+    beta_ibcbr        = round(beta_ibcbr, 4),
+    beta_y_lag1       = round(beta_y_lag1, 4),
+    p_cambio          = scales::pvalue(p_cambio),
+    p_cambio_lag1     = scales::pvalue(p_cambio_lag1),
+    p_ibcbr           = scales::pvalue(p_ibcbr),
+    p_y_lag1          = scales::pvalue(p_y_lag1),
+    r2                = round(r2, 4)
+  )
+
+# Exibir tabela com kable
+kable(
+  tabela_formatada,
+  caption = "Tabela 2.3 – Coeficientes Estimados por Setor",
+  align = "c",
+  format = "html"
+) %>%
+  kable_styling(
+    full_width = FALSE,
+    bootstrap_options = c("striped", "condensed")
+  )
+
+
+# Salvar tabela formatada em Excel
+write_xlsx(
+  tabela_formatada,
+  path = "../output/Tabela_2.3.xlsx"
+)
+```
+
+### 2.3.2) Análise{.tabset .tabset-fade}
+
+<div style=" 
+   background-color:#ffffff; 
+   padding:15px; border-radius:6px; 
+   margin:15px 0; 
+   font-family: 'Times New Roman'; 
+   text-align: justify; 
+   ">
+Os coeficientes estimados mostram que o repasse cambial para os preços ocorre de forma heterogênea entre os setores. Quando o coeficiente de câmbio é significativo, ele apresenta sinal positivo, conforme esperado economicamente, indicando que uma depreciação do real aumenta os preços setoriais.
+
+Os setores com repasse mais forte e estatisticamente robusto são o setor 03 (β = 0,4443) e o setor 22 (β = 0,3796). Em seguida, há um grupo com repasse relevante, mas um pouco menor: setor 08, setor 07 e setor 06, todos com coeficientes entre 0,19 e 0,24. Setores como 01, 16 e 00 exibem repasse moderado, enquanto o restante apresenta repasse fraco ou não significativo, indicando baixa sensibilidade às variações cambiais.
+
+Quanto ao efeito da atividade econômica (IBC-Br), poucos setores apresentam impacto relevante. O principal é o setor 12, com coeficiente positivo, enquanto o setor 11 mostra coeficiente negativo. Para a maioria, o IBC-Br não exerce influência estatisticamente significativa.
+
+Assim, os sinais estão corretos e o repasse cambial existe, mas é concentrado em alguns setores específicos, especialmente aqueles mais expostos ao comércio internacional.
+</div>
+
+
+
+## **02.4) Teste Ljung-Box** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+
+<b>Questão 02.4:</b> Teste a presença de autocorrelação utilizando o teste Ljung–Box. Quais as hipóteses
+nula e alternativa? Qual a sua conclusão para o teste?
+
+</div>
+### 2.4.1) Teste Ljung–Box por Setor {.tabset .tabset-fade}
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+############################################################
+# 02.4 — Teste de Autocorrelação Ljung–Box
+# Usando os mesmos modelos da Questão 2.3
+############################################################
+
+# Reconstruir lista de modelos exatamente como na 2.3
+resultados <- lapply(setores, function(s) {
+  
+  df_temp <- df %>% mutate(y_lag1 = lag(.data[[s]], 1))
+  
+  form <- as.formula(
+    paste0(s, " ~ cambio + cambio_lag1 + ibcbr + y_lag1 + month")
+  )
+  
+  lm(form, data = df_temp)
+})
+
+names(resultados) <- setores
+
+############################################################
+# Teste Ljung–Box para cada setor
+############################################################
+
+ljung <- lapply(setores, function(s) {
+  
+  mod <- resultados[[s]]
+  res <- residuals(mod)
+  
+  lb <- Box.test(res, lag = 12, type = "Ljung-Box")
+  
+  tibble(
+    setor     = s,
+    lb_stat   = lb$statistic,
+    lb_pvalue = lb$p.value
+  )
+}) %>% bind_rows()
+
+############################################################
+# Unir com tabela da questão 2.3
+############################################################
+
+tabela_ljung <- tabela %>% 
+  left_join(ljung, by = "setor")
+
+# Salvar resultados do teste Ljung–Box em Excel
+write_xlsx(
+  tabela_ljung,
+  path = "../output/Tabela_2.4.xlsx"
+)
+
+
+# Exibir tabela final
+
+
+kable(
+  tabela_ljung,
+  caption = "Tabela 2.4 – Teste Ljung–Box por Setor",
+  digits = 4,
+  format = "html"
+) %>%
+  kable_styling(
+    full_width = FALSE,
+    bootstrap_options = c("striped", "hover", "condensed")
+  )
+
+
+```
+### 2.4.2) Análise{.tabset .tabset-fade}
+
+<div style=" 
+   background-color:#ffffff; 
+   padding:15px; 
+   border-radius:6px; 
+   margin:15px 0; 
+   font-family: 'Times New Roman'; 
+   text-align: justify;
+">
+
+O teste Ljung–Box foi aplicado aos resíduos dos modelos setoriais estimados na questão 2.3. A hipótese nula do teste (H0) afirma que não há autocorrelação nos resíduos, enquanto a alternativa indica presença de autocorrelação. Dessa forma, valores de p-value inferiores a 0,05 levam à rejeição de H0.
+
+Os resultados mostram heterogeneidade clara entre os setores. Os setores _setor04, setor06, setor08, setor14, setor15, setor21 e setor22_ apresentam p-values abaixo de 0,05, indicando presença significativa de autocorrelação residual. Nesses casos, o modelo não captura completamente a dinâmica temporal do processo de formação de preços.
+
+Por outro lado, a maior parte dos setores apresenta p-values superiores a 0,05, sugerindo ausência de autocorrelação dos resíduos, de modo que a especificação utilizada é suficiente para capturar a estrutura temporal relevante.
+
+</div>
+
+```{r include=FALSE}
+
+# Importação e preparação da base para responder as questões 5, 6 e 7
+
+df <- read_xlsx("../input/T2dados.xlsx")
+
+# Renomear coluna de data
+df <- df %>% rename(data = ...1)
+
+# Converter para Date
+df$data <- as.Date(df$data, origin = "1899-12-30")
+
+# Criar dummies mensais
+df <- df %>% mutate(month = factor(month(data, label = TRUE, abbr = TRUE)))
+
+# Selecionar apenas colunas essenciais: data, cambio, ibcbr, setores e month
+setores <- grep("^setor", names(df), value = TRUE)
+df <- dplyr::select(df, data, cambio, ibcbr, dplyr::all_of(setores), month)
+```
+
+
+
+
+## **02.5) Utilizando Dummies Sazonais** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+
+<b>Questão 02.5:</b> Reestime o modelo incluindo dummies sazonais:
+SetorXXt = α + β1 cambiot + β2 ibcbrt +
+Σ δj Sazonalj.
+
+</div>
+
+```{r}
+# Rodar modelos com dummies sazonais
+resultados <- list()
+for(s in setores){
+  form <- as.formula(paste0(s, " ~ cambio + ibcbr + month"))
+  resultados[[s]] <- lm(form, data = df)
+}
+tabela <- lapply(names(resultados), function(s){
+  mod <- resultados[[s]]
+  sumr <- summary(mod)
+  
+  # Extrair os coeficientes com cuidado
+  coefs <- coef(sumr)
+  
+  data.frame(
+    setor       = s,
+    beta_cambio = coefs["cambio","Estimate"],
+    p_cambio    = coefs["cambio","Pr(>|t|)"],
+    beta_ibcbr  = coefs["ibcbr","Estimate"],
+    p_ibcbr     = coefs["ibcbr","Pr(>|t|)"],
+    r2          = sumr$r.squared,
+    stringsAsFactors = FALSE
+  )
+}) %>% bind_rows()
+
+# Ranking do repasse cambial
+ranking_repasse <- tabela %>%
+  dplyr::select(setor, beta_cambio, p_cambio, beta_ibcbr, p_ibcbr, r2) %>%
+  arrange(desc(beta_cambio))
+# Salvar tabela consolidada (coeficientes por setor)
+write_xlsx(
+  tabela,
+  path = "../output/Tabela_2.5.1.xlsx"
+)
+
+# Salvar ranking do repasse cambial
+write_xlsx(
+  ranking_repasse,
+  path = "../output/Tabela_2.5.2.xlsx"
+)
+```
+
+
+### 2.5.1) Resultados Consolidados por setor {.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+A tabela apresenta os resultados consolidados de todos os setores, incluindo os coeficientes estimados para a variação do câmbio (β₁) e da atividade econômica (β₂), os respectivos p-values e o R² de cada modelo setorial.
+
+</div>
+
+```{r echo=FALSE}
+tabela
+```
+
+
+### 2.5.2) ranking_repasse {.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+A tabela reorganiza os mesmos resultados em ordem decrescente do coeficiente do câmbio, destacando os setores em que o repasse cambial é mais intenso. Essa tabela facilita a comparação entre setores e permite identificar rapidamente quais são mais sensíveis às variações cambiais.
+
+</div>
+```{r}
+ranking_repasse
+```
+
+<div>
+## **02.6) Interpretando os Coeficientes** {.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; ">
+
+<b>Questão 02.6:</b> Interprete os coeficientes das dummies sazonais e compare a mudança nos demais coeficientes do item (c).
+
+</div>
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+Após incluir as dummies sazonais, o R² aumentou na maior parte dos setores e os resíduos foram melhores ajustados, causando certas correções nos betas. Os setores onde o repasse cambial sofreu um aumento após a sazonalidade foram: setor00, setor03, setor05, setor06, setor07, setor08, setor12 e setor22. Ou seja, ao inserir esse controle, o modelo revelou um repasse cambial estruturalmente maior do que parecia antes. No caso do setor12, o repasse cambial estava sendo fortemente mascarado pela ausência de dummies sazonais.
+
+Os setores que tiveram reduções nos repasses cambiais com a inserção da sazonalidade foram: setor01, setor02, setor04, setor09, setor20, setor21 e setor23. Contudo, nesses setores, as variações dos coeficientes cambiais foram muito baixas e, em grande parte, os repasses cambiais foram irrelevantes. Ou seja, o repasse cambial diminuiu levemente onde já era baixo.
+
+Nos demais setores, a sazonalidade não alterou significativamente, já que o repasse cambial se manteve baixo tanto no modelo anterior quanto após a inserção da sazonalidade. O IBCBr mantém pouca relevância em muitos setores, indicando que a inflação desses setores responde pouco ao ciclo doméstico, mas responde fortemente ao câmbio.
+
+</div>
+
+## **02.7) Autocorrelação** {.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; ">
+
+<b>Questão 02.7:</b> Teste a presença de autocorrelação utilizando o teste Ljung–Box. Qual a sua conclusão para o teste?
+
+</div>
+
+
+### 02.7.1) Teste Ljung–Box {.tabset .tabset-fade}
+
+```{r}
+ljung <- lapply(names(resultados), function(s){
+  
+  mod <- resultados[[s]]
+  res <- residuals(mod)
+  
+  lb  <- Box.test(res, lag = 12, type = "Ljung-Box")
+  
+  data.frame(
+    setor     = s,
+    lb_stat   = lb$statistic,
+    lb_pvalue = lb$p.value
+  )
+}) %>% bind_rows()
+
+#Juntar Ljung-Box à tabela principal
+tabela_ljung <- tabela %>%
+  left_join(ljung, by = "setor")
+
+# Salvar resultados do teste Ljung–Box
+write_xlsx(
+  tabela_ljung,
+  path = "../output/Tabela_2.7.xlsx"
+)
+#Exibir
+tabela_ljung
+
+```
+### 02.7.1) Análise {.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+Os setores que apresentaram autocorrelação nos resíduos foram: setor00, setor01, setor04, setor05, setor06, setor08, setor10, setor11, setor12, setor14 e setor15. Nesses casos, rejeita-se a hipótese nula (H₀) de ausência de autocorrelação, já que o p-value < 0,05. Isso indica que os resíduos não são independentes e que a estrutura temporal do modelo pode não estar totalmente adequada.
+
+Por outro lado, os setores sem autocorrelação nos resíduos foram: setor02, setor03, setor07, setor09, setor13, setor16, setor17, setor18, setor19, setor20, setor21, setor22 e setor23. Ou seja, nesses setores, a hipótese nula não foi rejeitada, e a estrutura temporal parece ser adequada, já que o modelo não apresenta autocorrelação estatisticamente detectada.
+
+</div>
+
+
+
+```{r include=FALSE}
+# Obtendo arquivo para as questões 8 e 9
+
+# Caminho do arquivo
+caminho <- "../input/T2dados.xlsx"
+df <- read_xlsx(caminho)
+
+# Renomear coluna de data
+df <- df %>% rename(data = ...1)
+
+# Converter para Date
+df$data <- as.Date(df$data, origin = "1899-12-30")
+
+# Criar dummies sazonais
+df <- df %>% mutate(month = factor(month(data)))
+```
+
+## **02.8) Variável Dependente Defasada** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+
+<b>Questão 02.8:</b> Reestime o modelo incluindo a variável dependente defasada (t–1) e a variável câmbio defasada (t–1):
+SetorXXt = α + β1 cambiot + β2 ibcbrt + β3 SetorXXt−1 + β4 cambiot−1 +
+Σ δj Sazonalj. 
+
+e responda qual é o impacto total do repasse cambial para os preços.
+
+</div>
+
+### 02.8.1) Estimação com Variável Defasada {.tabset .tabset-fade}
+
+```{r}
+# Criar defasagens
+df <- df %>%
+  mutate(
+    cambio_lag1 = dplyr::lag(cambio, 1)
+  )
+
+# Estimar modelos com Y(t-1) e câmbio(t-1)
+resultados <- list()
+
+for(s in setores){
+  
+  df <- df %>% mutate(
+    y_lag1 = dplyr::lag(.data[[s]], 1)
+  )
+  
+  form <- as.formula(
+    paste0(s, " ~ cambio + cambio_lag1 + ibcbr + y_lag1 + month")
+  )
+  
+  resultados[[s]] <- lm(form, data = df)
+}
+
+tabela <- lapply(names(resultados), function(s){
+  
+  mod  <- resultados[[s]]
+  sumr <- summary(mod)
+  
+  data.frame(
+    setor            = s,
+    beta_cambio      = coef(mod)["cambio"],
+    beta_cambio_lag1 = coef(mod)["cambio_lag1"],
+    beta_ibcbr       = coef(mod)["ibcbr"],
+    beta_y_lag1      = coef(mod)["y_lag1"],
+    p_cambio         = coef(sumr)[,"Pr(>|t|)"]["cambio"],
+    p_cambio_lag1    = coef(sumr)[,"Pr(>|t|)"]["cambio_lag1"],
+    p_ibcbr          = coef(sumr)[,"Pr(>|t|)"]["ibcbr"],
+    p_y_lag1         = coef(sumr)[,"Pr(>|t|)"]["y_lag1"],
+    r2               = sumr$r.squared,
+    row.names        = NULL 
+  )
+}) %>% bind_rows()
+
+tabela <- tabela %>%
+  dplyr::select(setor, beta_cambio, beta_cambio_lag1, beta_ibcbr,
+                beta_y_lag1, p_cambio, p_cambio_lag1, p_ibcbr, p_y_lag1, r2)
+
+# Salvar tabela consolidada dos coeficientes (com variáveis defasadas)
+write_xlsx(
+  tabela,
+  path = "../output/Tabela_2.8.1.xlsx"
+)
+
+
+# Exibir tabela consolidada
+tabela
+
+```
+
+### 02.8.2) Análise {.tabset .tabset-fade}
+
+
+<div style=" background-color:#ffffff; padding:15px;border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; ">
+
+Após a reestimação do modelo utilizando a variável dependente defasada e a variável câmbio defasada, os repasses totais do câmbio aos preços, por cada setor, foram os seguintes:
+
+</div>
+
+```{r echo=FALSE}
+# Criar tabela dos repasses totais
+repasses <- data.frame(
+  setor = c("setor00","setor01","setor02","setor03","setor04","setor05","setor06","setor07",
+            "setor08","setor09","setor10","setor11","setor12","setor13","setor14","setor15",
+            "setor16","setor17","setor18","setor19","setor20","setor21","setor22","setor23"),
+  repasse_total = c(0.1426300,0.1741034,0.0191022,0.7902552,0.0246811,0.0829654,0.2536063,
+                    0.3158291,0.3520800,-0.0668370,0.0502207,0.0080955,0.2762190,-0.0471328,
+                    0.0517589,0.0770033,0.1820876,0.1921303,0.1067352,0.0608764,0.1005746,
+                    0.0667441,0.7176265,0.1289453)
+)
+# Salvar tabela dos repasses totais
+write_xlsx(
+  repasses,
+  path = "../output/Tabela_2.8.2.xlsx"
+)
+# Exibir em formato kable
+knitr::kable(repasses, caption = "Repasses totais do câmbio aos preços por setor", align = "c")
+
+```
+
+
+
+## **02.9) Teste Ljung-Box + Breusch-Pagan** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+
+<b>Questão 02.9:</b> Teste a presença de autocorrelação utilizando o teste Ljung–Box e teste a presença de heterocedasticidade utilizando o teste Breusch–Pagan. Qual a sua conclusão
+para os testes?
+
+</div>
+### 02.9.1) Teste Ljung-Box + Breusch-Pagan {.tabset .tabset-fade}
+
+```{r}
+# Teste Ljung–Box
+ljung <- lapply(names(resultados), function(s){
+  
+  mod <- resultados[[s]]
+  res <- residuals(mod)
+  
+  lb  <- Box.test(res, lag = 12, type = "Ljung-Box")
+  
+  data.frame(
+    setor     = s,
+    lb_stat   = lb$statistic,
+    lb_pvalue = lb$p.value
+  )
+}) %>% bind_rows()
+
+# Teste Breusch–Pagan
+bp_tests <- lapply(names(resultados), function(s){
+  
+  mod <- resultados[[s]]
+  
+  bp <- bptest(mod)
+  
+  data.frame(
+    setor       = s,
+    bp_stat     = bp$statistic,
+    bp_pvalue   = bp$p.value
+  )
+}) %>% bind_rows()
+
+# Juntar resultados em tabela final
+tabela_final <- tabela %>%
+  left_join(ljung, by = "setor") %>%
+  left_join(bp_tests, by = "setor")
+
+write_xlsx(
+  tabela_final,
+  path = "../output/Tabela_2.9.xlsx"
+)
+
+# Exibir tabela final
+tabela_final
+
+```
+
+### 02.9.2) Análise {.tabset .tabset-fade}
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; ">
+
+Os seguintes setores apresentaram <i>p-value</i> < 0,05 no teste de Ljung–Box: <b>setor04</b> (p = 0.0007), <b>setor07</b> (p = 0.0036), <b>setor08</b> (p = 0.0354), <b>setor12</b> (p = 0.0535), <b>setor15</b> (p = 0.0063), <b>setor16</b> (p = 0.0017), <b>setor17</b> (p = 0.0563), <b>setor22</b> (p = 0.0495) e <b>setor23</b> (p = 0.0176).
+
+Todos esses setores apresentaram autocorrelação de resíduos. Contudo, entre todos esses, após o teste Breusch–Pagan, os setores que apresentaram <i>p-value</i> < 0,05 foram: <b>setor03</b> (p = 0.0083), <b>setor07</b> (p = 0.0069) e <b>setor22</b> (p = 0.0192).
+
+Ou seja, apenas esses três apresentaram heterocedasticidade.
+
+</div>
+
+
+
+
+
+
+
+
+
+
+## **02.10) Reestimando o Modelo ** {.tabset .tabset-fade}
+
+<div style="
+  background-color:#ffffff;
+  padding:15px;
+  border-left:4px solid #003366;
+  border-radius:6px;
+  margin:15px 0;
+  font-family: 'Times New Roman';
+">
+
+<b>Questão 02.10:</b> Independentemente dos resultados dos testes no item (h), reestime o modelo usando o erro robusto a heterocedasticidade e autocorrelação (HAC). Com relação ao item (h), a significância dos parâmetros mudou?
+
+</div>
+
+### 02.10.2) Restimação usando HAC {.tabset .tabset-fade}
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# Caminho do arquivo
+caminho <- "../input/T2dados.xlsx"
+df <- read_xlsx(caminho)
+
+# Renomear coluna de data
+df <- df %>% rename(data = ...1)
+
+# Converter para Date
+df$data <- as.Date(df$data, origin = "1899-12-30")
+
+# Criar dummies sazonais
+df <- df %>% mutate(month = factor(month(data)))
+
+
+
+# Criar defasagens
+df <- df %>%
+  mutate(
+    cambio_lag1 = dplyr::lag(cambio, 1)
+  )
+
+# lista de setores
+setores <- grep("^setor", names(df), value = TRUE)
+
+
+
+# Estimar modelos com Y(t-1) e câmbio(t-1)
+resultados <- list()
+
+for(s in setores){
+  
+  df <- df %>% mutate(
+    y_lag1 = dplyr::lag(.data[[s]], 1)
+  )
+  
+  form <- as.formula(
+    paste0(s, " ~ cambio + cambio_lag1 + ibcbr + y_lag1 + month")
+  )
+  
+  resultados[[s]] <- lm(form, data = df)
+}
+
+
+
+# Consolidar resultados
+tabela <- lapply(names(resultados), function(s){
+  
+  mod  <- resultados[[s]]
+  sumr <- summary(mod)
+  
+  data.frame(
+    setor              = s,
+    beta_cambio        = coef(mod)["cambio"],
+    beta_cambio_lag1   = coef(mod)["cambio_lag1"],
+    beta_ibcbr         = coef(mod)["ibcbr"],
+    beta_y_lag1        = coef(mod)["y_lag1"],
+    p_cambio           = coef(sumr)[,"Pr(>|t|)"]["cambio"],
+    p_cambio_lag1      = coef(sumr)[,"Pr(>|t|)"]["cambio_lag1"],
+    p_ibcbr            = coef(sumr)[,"Pr(>|t|)"]["ibcbr"],
+    p_y_lag1           = coef(sumr)[,"Pr(>|t|)"]["y_lag1"],
+    r2                 = sumr$r.squared
+  )
+}) %>% bind_rows()
+
+
+
+# Teste Ljung–Box
+ljung <- lapply(names(resultados), function(s){
+  
+  mod <- resultados[[s]]
+  res <- residuals(mod)
+  
+  lb  <- Box.test(res, lag = 12, type = "Ljung-Box")
+  
+  data.frame(
+    setor     = s,
+    lb_stat   = as.numeric(lb$statistic),
+    lb_pvalue = as.numeric(lb$p.value)
+  )
+  
+}) %>% bind_rows()
+
+
+# Teste Breusch–Pagan
+bp_tests <- lapply(names(resultados), function(s){
+  
+  mod <- resultados[[s]]
+  
+  bp <- bptest(mod)
+  
+  data.frame(
+    setor       = s,
+    bp_stat     = as.numeric(bp$statistic),
+    bp_pvalue   = as.numeric(bp$p.value)
+  )
+  
+}) %>% bind_rows()
+
+
+# Tabela com Ljung–Box
+tabela_ljung <- tabela %>% 
+  dplyr::left_join(ljung, by = "setor")
+
+
+# Tabela final com Ljung–Box + Breusch–Pagan
+tabela_final <- tabela_ljung %>% 
+  dplyr::left_join(bp_tests, by = "setor")
+
+
+# Erros robustos a heterocedasticidade e autocorrelação (HAC)
+
+hac_results <- lapply(names(resultados), function(s){
+  
+  mod <- resultados[[s]]
+  
+  # Estimador HAC (Newey-West)
+  hac_vcov <- NeweyWest(mod, lag = 12, prewhite = FALSE)
+  
+  # Coeficientes com erros-padrão robustos
+  coefs_hac <- coeftest(mod, vcov = hac_vcov)
+  
+  data.frame(
+    setor = s,
+    beta_cambio_hac        = coefs_hac["cambio", 1],
+    se_cambio_hac          = coefs_hac["cambio", 2],
+    p_cambio_hac           = coefs_hac["cambio", 4],
+    
+    beta_cambio_lag1_hac   = coefs_hac["cambio_lag1", 1],
+    se_cambio_lag1_hac     = coefs_hac["cambio_lag1", 2],
+    p_cambio_lag1_hac      = coefs_hac["cambio_lag1", 4],
+    
+    beta_ibcbr_hac         = coefs_hac["ibcbr", 1],
+    se_ibcbr_hac           = coefs_hac["ibcbr", 2],
+    p_ibcbr_hac            = coefs_hac["ibcbr", 4],
+    
+    beta_y_lag1_hac        = coefs_hac["y_lag1", 1],
+    se_y_lag1_hac          = coefs_hac["y_lag1", 2],
+    p_y_lag1_hac           = coefs_hac["y_lag1", 4]
+  )
+}) %>% bind_rows()
+
+
+
+# Tabela final com HAC
+tabela_final_hac <- tabela_final %>%
+  dplyr::left_join(hac_results, by = "setor")
+
+library(writexl)
+
+# Salvar resultados da Questão 2.10 em Excel
+write_xlsx(
+  tabela_final_hac,
+  path = "../output/Tabela_2.10.xlsx"
+)
+
+# Exibir
+tabela_final_hac
+
+```
+### 02.10.2) Análise {.tabset .tabset-fade}
+
+
+<div style=" background-color:#ffffff; padding:15px;  border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+Os resultados mostram que o coeficiente do câmbio (β₁) permanece significativo na maior parte dos setores, mesmo após a correção HAC. A estabilidade desse efeito indica que o repasse cambial contemporâneo é uma característica estrutural do comportamento de preços nos setores analisados, e não um artefato gerado por heterocedasticidade ou autocorrelação nos resíduos.
+
+O coeficiente do câmbio defasado (β₄) apresentou a maior sensibilidade ao tratamento robusto. Em diversos setores, a significância observada com erros-padrão tradicionais desaparece quando adotamos HAC, evidenciando que parte da persistência do repasse cambial era sustentada pela autocorrelação dos resíduos.
+
+A adoção de erros HAC revelou que, em alguns setores, o efeito do IBC-Br estava subestimado. Assim, pode-se afirmar que, embora o IBC-Br não seja um determinante amplamente significativo em todos os setores, ele possui relevância estatística robusta em alguns setores.
+
+</div>
+
+# **Questão 03: Tamanho da Turma e Manipulação das Notas na Itália** 
+
+Nesta questão, iremos estimar o impacto do monitoramento das provas italianas sobre o desempenho escolar, com dados reais. O objetivo é entender se a relação observada entre turmas menores e notas maiores se deve à aprendizagem real ou à manipulação das notas.
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+
+# ==============================================================================
+# Importar a base de dados
+# ==============================================================================
+Maimonides_italia <- read.dta13("../input/smallmo.dta")
+
+```
+
+
+
+## **3.1 Características da amostra e estatísticas descritivas** {.tabset .tabset-fade} 
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';"> <b>3.1 — Estatísticas Descritivas</b><br><br> Através do pacote <b>stargazer</b>, faça uma tabela com estatísticas descritivas completas da base de dados. Inclua variáveis contínuas e dummies relevantes.<br><br> </div>
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+# ==============================================================================
+# 3.1 Tabela Descritiva Geral
+# ==============================================================================
+# Gera um resumo estatístico (média, desvio, min, max)
+stargazer(Maimonides_italia, type = "text")
+```
+
+
+
+```{r include=FALSE}
+desc <- as.data.frame(summary(Maimonides_italia))
+
+write_xlsx(desc, "../output/Tabela_3.1.xlsx")
+
+```
+
+## **3.2 Médias por região italiana e série** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.2 — Médias por Região e Série</b><br><br>
+Mostre as médias das seguintes variáveis por <b>área</b> (1=norte, 2=centro, 3=sul) e por <b>grade</b> (série):<br><br>
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.2 Mostre as médias das seguintes variáveis, por região italiana e série:
+# ==============================================================================
+
+# Criação da tabela de médias
+medias_regiao_serie <- Maimonides_italia %>%
+  # Agrupar pela Região (area) e pela Série (grade)
+  group_by(area, grade) %>%
+  # Calcular a média para todas as variáveis listadas
+  summarise_at(
+    .vars = c("answers_math_std", "answers_ital_std", "female", 
+              "immigrants_broad", "dad_lowedu", "dad_midedu", 
+              "mom_unemp", "answers_math_pct", "answers_ital_pct", 
+              "our_CHEAT_ital", "our_CHEAT_math"),
+    .funs = mean, 
+    na.rm = TRUE
+  )  
+# Visualizar o resultado no console
+print(medias_regiao_serie)
+```
+
+```{r include=FALSE}
+# Salvar a tabela 3.2 em Excel
+write_xlsx(medias_regiao_serie, "../output/Tabela_3.2.xlsx")
+```
+
+
+## **3.3 Aleatorização** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.3 — Discussão sobre Aleatorização</b><br><br>
+Discuta se o experimento de monitoramento foi adequadamente aleatorizado. Explique por que o balanceamento é fundamental e dê um exemplo de variável que, se desbalanceada, poderia enviesar os resultados.
+</div>
+
+<div style=" background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify; ">
+
+A aleatorização é um elemento central para garantir a validade interna de um experimento, pois assegura que as diferenças observadas entre o grupo tratado e o grupo de controle não sejam consequência de características prévias dos indivíduos, mas sim do próprio tratamento. No caso do experimento de monitoramento, a aleatorização adequada significa que fatores como características socioeconômicas, nível de conhecimento prévio e perfil das turmas devem estar distribuídos de maneira semelhante entre os grupos.
+
+Quando o balanceamento é alcançado, evitam-se vieses que podem distorcer a interpretação causal. Por exemplo, se uma variável relevante ficar desbalanceada entre os grupos, ela pode criar uma diferença artificial que será erroneamente atribuída ao tratamento. Imagine que, por acaso no sorteio, o grupo monitorado tivesse uma proporção muito maior de alunos cujos pais têm baixa escolaridade. A literatura em economia da educação demonstra que a escolaridade dos pais é fortemente relacionada ao desempenho escolar, dado que famílias com menor nível educacional tendem a oferecer menos recursos educativos aos filhos. Assim, se essa característica estiver desbalanceada, o grupo monitorado poderia apresentar desempenho inferior não devido ao monitoramento, mas por causa de sua composição socioeconômica.
+
+Nesse cenário, concluiríamos equivocadamente que a presença do monitor prejudica a prova, quando, na verdade, o viés decorre da falta de comparabilidade entre os grupos. Portanto, assegurar aleatorização e balanceamento é fundamental para que o estimador seja imparcial e permita interpretar corretamente o efeito causal do monitoramento.
+
+</div>
+
+
+## **3.4 Balanceamento: Teste t** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.4 — Teste t de Balanceamento</b><br><br>
+Realize testes t comparando alunos monitorados vs. não monitorados nas variáveis:<br><br>
+female, immigrants_broad, dad_lowedu, dad_midedu, mom_unemp.<br><br>
+Use <code>t.test()</code> após filtrar os grupos com <code>o_math</code>.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.4 Balanceamento
+# ==============================================================================
+# Verifica se a média de pais com baixa escolaridade é igual 
+# entre turmas COM monitor (o_math = 1) e SEM monitor (o_math = 0)
+
+t.test(dad_lowedu ~ o_math, data = Maimonides_italia)
+
+
+```
+
+
+```{r include=FALSE}
+# Rodar o teste t
+teste_t_dad_lowedu <- t.test(dad_lowedu ~ o_math, data = Maimonides_italia)
+
+# Converter o resultado em tabela
+tabela_t_3.4 <- data.frame(
+  Estatística_t     = teste_t_dad_lowedu$statistic,
+  p_value           = teste_t_dad_lowedu$p.value,
+  Media_monitorado  = teste_t_dad_lowedu$estimate[1],
+  Media_nao_monitor = teste_t_dad_lowedu$estimate[2],
+  IC_inferior       = teste_t_dad_lowedu$conf.int[1],
+  IC_superior       = teste_t_dad_lowedu$conf.int[2]
+)
+
+# Salvar em Excel
+write_xlsx(tabela_t_3.4, "../output/Tabela_3.4.xlsx")
+```
+
+## **3.5 Balanceamento: Regressão linear** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.5 — Balanceamento via Regressões Lineares</b><br><br>
+Estime regressões das covariáveis sobre <code>o_math</code>. Inclua controles e dummies (ex.: <code>factor(region)</code>).  
+Calcule erros-padrão clusterizados quando adequado.  
+Reporte tudo com <b>stargazer</b>.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.5 Balanceamento através de regressão linear
+# ==============================================================================
+# Regressão Simples (Sem controles)
+# Testamos se o monitoramento (o_math) afeta a variável de desemprego da mãe
+regressao1 <- lm(mom_unemp ~ o_math, data = Maimonides_italia)
+
+# Regressão com Controles e Cluster (Ajustada)
+# O enunciado sugere controlar por região e matrícula escolar.
+# Nota: No dicionário, a variável de região é 'area' e o cluster é 'clu'.
+
+regressao2 <- lm(mom_unemp ~ o_math + factor(area) + enrol_ins_snv, 
+                 data = Maimonides_italia)
+
+# Calcular Erros Padrão Clusterizados (Ajuste Robusto)
+# O R calcula isso separadamente da regressão. 
+# Usamos a variável 'clu' (cluster school*grade) conforme o dicionário.
+se_cluster_1 <- sqrt(diag(vcovCL(regressao1, cluster = ~clu)))
+se_cluster_2 <- sqrt(diag(vcovCL(regressao2, cluster = ~clu)))
+
+# Gerar a Tabela Final
+# Inserimos os erros calculados manualmente no argumento 'se'
+stargazer(regressao1, regressao2, 
+          type = "text", # Use "html" para o relatório final
+          se = list(se_cluster_1, se_cluster_2),
+          title = "Teste de Balanceamento (Corrigido)",
+          dep.var.labels = "Desemprego da Mãe",
+          covariate.labels = c("Monitoramento", "Matrícula Instituição"),
+          omit = "region") # Oculta as linhas de região para limpar a tabela
+
+```
+
+```{r include=FALSE}
+# Criar tabela da Regressão 1
+tab_reg1 <- tidy(regressao1) %>%
+  mutate(se_cluster = se_cluster_1,
+         t = estimate / se_cluster)
+
+# Criar tabela da Regressão 2
+tab_reg2 <- tidy(regressao2) %>%
+  mutate(se_cluster = se_cluster_2,
+         t = estimate / se_cluster)
+
+# Salvar no Excel (duas abas)
+write_xlsx(
+  list(
+    Regressao_Simples = tab_reg1,
+    Regressao_Ajustada = tab_reg2
+  ),
+  path = "../output/Tabela_3.5.xlsx"
+)
+```
+
+
+## **3.6 Recortes regionais** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.6 — Balanceamento por Região</b><br><br>
+Use <code>filter()</code> para refazer o balanceamento separadamente para:<br><br>
+Norte (area==1), Centro (area==2) e Sul (area==3).<br><br>
+Reporte com <b>stargazer</b>.
+</div>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.6 Recortes Regionais
+# ==============================================================================
+
+
+# Transforma a região em número (1, 2, 3) para garantir que o filtro funcione
+Maimonides_italia$area_num <- as.numeric(Maimonides_italia$area)
+
+# Criar os recortes
+df_norte  <- Maimonides_italia %>% dplyr::filter(area_num == 1)
+df_centro <- Maimonides_italia %>% dplyr::filter(area_num == 2)
+df_sul    <- Maimonides_italia %>% dplyr::filter(area_num == 3)
+
+# Verificação de segurança (Se aparecer 0 aqui, o filtro falhou)
+print(paste("Linhas no Norte:", nrow(df_norte)))
+print(paste("Linhas no Sul:", nrow(df_sul)))
+
+# Rodar as regressões
+reg_norte  <- lm(mom_unemp ~ o_math, data = df_norte)
+reg_centro <- lm(mom_unemp ~ o_math, data = df_centro)
+reg_sul    <- lm(mom_unemp ~ o_math, data = df_sul)
+
+# Gerar a tabela final
+stargazer(reg_norte, reg_centro, reg_sul, 
+          type = "text", # Mude para "html" para salvar o arquivo final
+          title = "Balanceamento por Região",
+          column.labels = c("Norte", "Centro", "Sul"),
+          covariate.labels = "Monitoramento",
+          omit.stat = c("f", "ser"))
+
+
+```
+```{r include=FALSE}
+# Tabelas individuais
+tab_norte  <- tidy(reg_norte)
+tab_centro <- tidy(reg_centro)
+tab_sul    <- tidy(reg_sul)
+
+# Salvar no Excel (três abas)
+write_xlsx(
+  list(
+    Norte  = tab_norte,
+    Centro = tab_centro,
+    Sul    = tab_sul
+  ),
+  path = "../output/Tabela_3.6.xlsx"
+)
+
+```
+
+
+## **3.7 Impacto do monitoramento** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.7 — Impacto do Monitoramento</b><br><br>
+Calcule o impacto do monitoramento sobre:<br><br>
+• our_CHEAT_math e our_CHEAT_ital (manipulação)<br>
+• answers_math_std e answers_ital_std (notas)<br><br>
+Use regressões lineares apropriadas.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.7 IMPACTO DO MONITORAMENTO
+# ==============================================================================
+
+# Rodar as Regressões
+reg_cheat_math <- lm(our_CHEAT_math ~ o_math + factor(area) + enrol_ins_snv, 
+                     data = Maimonides_italia)
+
+reg_cheat_ital <- lm(our_CHEAT_ital ~ o_math + factor(area) + enrol_ins_snv, 
+                     data = Maimonides_italia)
+
+reg_score_math <- lm(answers_math_std ~ o_math + factor(area) + enrol_ins_snv, 
+                     data = Maimonides_italia)
+
+# Gerar Tabela
+# Variáveis na ordem: o_math, area2, area3, enrol_ins_snv
+stargazer(reg_cheat_math, reg_cheat_ital, reg_score_math,
+          type = "text", 
+          title = "3.5 - Impacto do Monitoramento",
+          
+          # Aqui está o segredo: precisamos dar nome para TODAS as variáveis primeiro
+          covariate.labels = c("Monitoramento", "Região: Centro", "Região: Sul", "Matrícula"),
+          
+          dep.var.labels = c("Fraude Math", "Fraude Ital", "Nota Math"),
+          
+          # Agora ocultamos as regiões usando os nomes que acabamos de dar
+          omit = c("Região: Centro", "Região: Sul"))
+
+
+```
+```{r include=FALSE}
+# ==============================================================================
+# SALVAR TABELA 3.7 EM EXCEL (.xlsx)
+# ==============================================================================
+library(openxlsx)
+
+# Extrair coeficientes e SE das três regressões
+coef_1 <- coef(reg_cheat_math)
+se_1   <- sqrt(diag(vcov(reg_cheat_math)))
+
+coef_2 <- coef(reg_cheat_ital)
+se_2   <- sqrt(diag(vcov(reg_cheat_ital)))
+
+coef_3 <- coef(reg_score_math)
+se_3   <- sqrt(diag(vcov(reg_score_math)))
+
+# Criar data frame consolidado
+tabela_37 <- data.frame(
+  Variável = names(coef_1),
+
+  Coef_Fraude_Math = coef_1,
+  SE_Fraude_Math   = se_1,
+
+  Coef_Fraude_Ital = coef_2,
+  SE_Fraude_Ital   = se_2,
+
+  Coef_Nota_Math   = coef_3,
+  SE_Nota_Math     = se_3
+)
+
+# Caminho de saída
+caminho <- "../output/Tabela_3.7.xlsx"
+
+# Criar e salvar o arquivo Excel
+wb <- createWorkbook()
+addWorksheet(wb, "Tabela_3.7")
+writeData(wb, sheet = "Tabela_3.7", x = tabela_37)
+
+saveWorkbook(wb, caminho, overwrite = TRUE)
+
+```
+
+
+## **3.8 Monitoramento por regiões** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.8 — Diferenças Regionais no Monitoramento</b><br><br>
+Teste se há diferença na incidência de manipulação entre regiões (Norte, Centro e Sul).  
+Use regressões lineares e reporte via <b>stargazer</b>.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.8 MONITORAMENTO POR REGIÕES (Nível de Fraude)
+# ==============================================================================
+
+reg_regioes <- lm(our_CHEAT_math ~ factor(area), data = Maimonides_italia)
+
+stargazer(reg_regioes, 
+          type = "text",
+          title = "3.6 - Diferença de Fraude por Região (Base: Norte)",
+          covariate.labels = c("Centro", "Sul"),
+          dep.var.labels = "Suspeita de Fraude (Math)")
+
+
+```
+
+```{r include=FALSE}
+# ==============================================================================
+# SALVAR TABELA 3.8 EM EXCEL (.xlsx)
+# ==============================================================================
+library(openxlsx)
+
+# Extrair coeficientes e erros padrão da regressão
+coefs  <- coef(reg_regioes)
+ses    <- sqrt(diag(vcov(reg_regioes)))
+
+# Variáveis de interesse
+variaveis <- c("(Intercept)", "area2", "area3")
+nomes_lindos <- c("Região Norte (base)", "Centro", "Sul")
+
+# Construir tabela
+tabela_38 <- data.frame(
+  Variável = nomes_lindos,
+  Coeficiente = coefs[variaveis],
+  Erro_Padrão = ses[variaveis]
+)
+
+# Caminho do arquivo (ajuste se quiser salvar em outro lugar)
+caminho <- "../output/Tabela_3.8.xlsx"
+
+# Criar e salvar o Excel
+wb <- createWorkbook()
+addWorksheet(wb, "Tabela_3.8")
+writeData(wb, "Tabela_3.8", tabela_38)
+saveWorkbook(wb, caminho, overwrite = TRUE)
+
+```
+
+## **3.9 Notas por região** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.9 — Efeito da Manipulação sobre Notas por Região</b><br><br>
+Teste se o impacto da manipulação sobre as notas difere no Sul em relação ao Norte.  
+Use modelos com interações.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.9 NOTAS POR REGIÃO
+# ==============================================================================
+
+# Criar variável dummy para o Sul (Area 3)
+Maimonides_italia$is_south <- ifelse(Maimonides_italia$area == 3, 1, 0)
+
+# Regressão com interação
+reg_interacao <- lm(answers_math_std ~ our_CHEAT_math * is_south, 
+                    data = Maimonides_italia)
+
+stargazer(reg_interacao, 
+          type = "text",
+          title = "3.7 - Interação: A fraude compensa mais no Sul?",
+          covariate.labels = c("Fraude (Geral)", "É Sul", "Fraude x É Sul"),
+          dep.var.labels = "Nota em Matemática")
+
+```
+
+```{r include=FALSE}
+# ==============================================================================
+# SALVAR TABELA 3.9 EM EXCEL (.xlsx)
+# ==============================================================================
+
+library(openxlsx)
+
+# Extrair coeficientes e erros padrão
+coefs <- coef(reg_interacao)
+ses   <- sqrt(diag(vcov(reg_interacao)))
+
+# Seleção das variáveis na ordem que você reportou
+variaveis <- c("(Intercept)", 
+               "our_CHEAT_math",
+               "is_south",
+               "our_CHEAT_math:is_south")
+
+nomes_lindos <- c("Intercepto",
+                  "Fraude (Geral)",
+                  "É Sul",
+                  "Fraude × É Sul")
+
+# Construir tabela
+tabela_39 <- data.frame(
+  Variável     = nomes_lindos,
+  Coeficiente  = coefs[variaveis],
+  Erro_Padrão  = ses[variaveis]
+)
+
+# Caminho do arquivo
+caminho <- "../output/Tabela_3.9.xlsx"
+
+# Criar e salvar Excel
+wb <- createWorkbook()
+addWorksheet(wb, "Tabela_3.9")
+writeData(wb, "Tabela_3.9", tabela_39)
+saveWorkbook(wb, caminho, overwrite = TRUE)
+
+```
+
+## **3.10 Tamanho da classe: Problema de causalidade** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.10 — Problema de Causalidade</b><br><br>
+Explique por que uma regressão simples das notas no tamanho da turma pode gerar viés.  
+Discuta possíveis fontes de endogeneidade e omissão de variáveis.
+</div>
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family:'Times New Roman'; text-align: justify;">
+
+Uma regressão simples que relaciona as notas dos alunos ao tamanho da turma tende a produzir resultados viesados porque o tamanho da classe não é determinado de forma aleatória. Ele está associado a fatores que também influenciam o desempenho escolar, o que gera endogeneidade.
+
+A primeira fonte de viés ocorre porque famílias com maior renda e maior engajamento educacional costumam matricular seus filhos em escolas que possuem turmas menores. Essas características familiares elevam o desempenho independentemente da quantidade de alunos em sala. Assim, a regressão pode indicar que turmas pequenas aumentam as notas quando, na verdade, são as características das famílias que explicam esse resultado.
+
+A segunda fonte de viés aparece porque as próprias escolas podem colocar alunos com dificuldades de aprendizagem em turmas menores para facilitar o acompanhamento. Isso pode gerar o efeito contrário e fazer parecer que turmas pequenas estão associadas a notas mais baixas, quando esse desempenho reduzido é explicado pelas dificuldades prévias dos alunos e não pelo tamanho da turma.
+
+Como o tamanho da classe está correlacionado com fatores não observados que influenciam o desempenho, o coeficiente estimado por OLS não representa o efeito causal verdadeiro. A relação observada é resultado desses fatores omitidos e da seleção dos alunos, e não do impacto isolado do tamanho da turma.
+
+</div>
+
+## **3.11 Maimônides: Desenho quase-experimental** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.11 — Regra de Maimônides</b><br><br>
+Explique por que a regra de Maimônides gera variação exógena no tamanho da turma.  
+Quais hipóteses devem ser satisfeitas para identificar o efeito causal?
+</div>
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family:'Times New Roman'; text-align: justify;">
+
+A regra de Maimônides gera variação exógena no tamanho da turma porque estabelece limites administrativos que determinam quando uma turma deve ser dividida. Esses limites não dependem das características dos alunos, das escolhas dos pais ou de decisões específicas dos diretores. Como a divisão ocorre sempre que a matrícula ultrapassa pontos de corte pré-definidos, a variação no tamanho da classe ao redor desses cortes é determinada por regras burocráticas e não por fatores educacionais ou socioeconômicos. É essa descontinuidade prevista pela legislação que produz uma fonte plausivelmente exógena de variação e permite identificar o efeito causal do tamanho da turma sobre o desempenho.
+
+Para que essa estratégia gere estimativas causais válidas, algumas condições precisam ser satisfeitas. A primeira é a relevância, que exige que a regra seja um forte determinante do tamanho real da turma. A segunda é a exogeneidade, que requer ausência de manipulação precisa da matrícula; alunos imediatamente acima e abaixo dos pontos de corte devem ser comparáveis em todas as características relevantes. A terceira é a restrição de exclusão, que exige que a matrícula total influencie a nota apenas por meio do tamanho da turma, não havendo outros canais independentes que conectem a regra diretamente ao desempenho acadêmico.
+
+</div>
+
+## **3.12 RDD: Scatterplot e regressões** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.12 — RDD Gráfico e Regressões</b><br><br>
+Faça um scatterplot das notas médias vs tamanho predito (<code>clsize_hat</code>).  
+Estime regressões lineares à esquerda e direita do cutoff e plote ambas.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.12 RDD
+# ==============================================================================
+
+# Preparar os dados (Recorte ao redor do Cutoff de 25 alunos)
+# A regra diz que até 25 alunos é uma turma só. Acima de 25, divide.
+# Escolhemos olhar escolas com 10 a 45 alunos para ver o salto claramente.
+rdd_data <- Maimonides_italia %>% 
+  filter(enrol_ins_snv >= 10 & enrol_ins_snv <= 45)
+
+plot3.12 <- ggplot(rdd_data, aes(x = enrol_ins_snv, y = answers_math_std)) +
+  geom_point(alpha = 0.3, color = "gray50") +
+  geom_vline(xintercept = 25, linetype = "dashed", color = "red") +
+  geom_smooth(
+    data = filter(rdd_data, enrol_ins_snv <= 25),
+    method = "lm", color = "blue", se = TRUE
+  ) +
+  geom_smooth(
+    data = filter(rdd_data, enrol_ins_snv > 25),
+    method = "lm", color = "blue", se = TRUE
+  ) +
+  scale_x_continuous(
+    limits = c(10, 45),
+    breaks = seq(10, 45, 5)
+  ) +
+  labs(
+    title = "RDD: Nota em Matemática vs Matrícula (Cutoff = 25)",
+    x = "Matrícula Total (enrol_ins_snv)",
+    y = "Nota em Matemática (Padronizada)"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(family = "TT Times New Roman",
+                              hjust = 0.5, size = 22),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 18)
+  )
+
+plot3.12
+
+
+
+```
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family:'Times New Roman'; text-align: justify;">
+
+Se turmas menores aumentam a nota, esperamos ver um salto para cima na linha de tendência das notas logo após o corte de 25 (lado direito mais alto que o esquerdo no ponto de encontro).
+
+</div>
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+ggsave("../output/Imagem_3.12.png",
+       plot = plot3.12,
+       width = 8,
+       height = 6,
+       dpi = 300)
+```
+
+
+
+## **3.13 RDD usando tamanho predito** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.13 — RDD com Tamanho Predito</b><br><br>
+Repita a RDD usando <b>clsize_hat</b> como variável principal.  
+Explique por que essa medida pode ser superior ao tamanho observado.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+plot3.13 <- ggplot(Maimonides_italia, aes(x = clsize_hat, y = answers_math_std)) +
+  geom_jitter(alpha = 0.25, width = 0.4, height = 0.4, color = "gray40") +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  scale_x_continuous(breaks = seq(floor(min(Maimonides_italia$clsize_hat)),
+                                  ceiling(max(Maimonides_italia$clsize_hat)), 1)) +
+  labs(
+    title = "RDD: Nota vs Tamanho Predito da Turma",
+    x = "Tamanho Predito (clsize_hat)",
+    y = "Nota em Matemática (Padronizada)"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "TT Times New Roman"),
+    plot.title = element_text(family = "TT Times New Roman",
+                              hjust = 0.5, size = 22),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 18)
+  )
+
+plot3.13
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+ggsave("../output/Imagem_3.13.png",
+       plot = plot3.13,
+       width = 8,
+       height = 6,
+       dpi = 300)
+```
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+O tamanho predito da turma representado por clsize_hat é uma medida superior ao tamanho observado porque elimina a influência de decisões humanas que tornam o tamanho real endógeno. O tamanho real da turma é afetado por escolhas de pais, diretores e processos internos das escolas. Essas decisões estão associadas a características dos alunos e das famílias que também influenciam o desempenho escolar, gerando viés de variável omitida. Famílias com maior nível socioeconômico podem buscar escolas com turmas menores e diretores podem alocar alunos com dificuldades em classes reduzidas. Nessas situações, usar o tamanho real faria parecer que turmas menores produzem notas menores ou maiores quando na realidade o efeito está contaminado por seleção.
+
+O tamanho predito é diferente porque resulta exclusivamente da regra administrativa da divisão de turmas. Essa regra não depende de características dos alunos ou das famílias e por isso cria variação exógena no tamanho das classes. Essa exogeneidade permite estimar o efeito causal do tamanho da turma nas notas, razão pela qual clsize_hat é a variável correta dentro de uma estratégia de regressão descontínua e na abordagem instrumental.
+
+</div>
+
+
+## **3.14 Sensibilidade da RDD e DAG** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.14 — Robustez e DAG</b><br><br>
+Discuta possíveis violações da RDD (manipulação do cutoff, ajustes locais).  
+Proponha uma DAG representando os riscos e discuta o uso de IV como solução complementar.
+</div>
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.14 MANIPULAÇÃO, RDD DIFUSO E DAG
+# ==============================================================================
+
+
+# Definir as coordenadas para o gráfico ficar organizado
+# Z (Regra) na esquerda, D (Tamanho) no meio, Y (Nota) na direita, U em cima.
+coordenadas <- list(
+  x = c(Rule = 1, ClassSize = 2, Grade = 3, U = 2.5),
+  y = c(Rule = 1, ClassSize = 1, Grade = 1, U = 2)
+)
+
+# Criar a estrutura Lógica da DAG
+dag_maimonides <- dagify(
+  # As fórmulas indicam "quem causa quem" (Seta da direita para a esquerda)
+  Grade ~ ClassSize + U,      # A Nota é causada pelo Tamanho e pela Manipulação (U)
+  ClassSize ~ Rule + U,       # O Tamanho Real é causado pela Regra e pela Manipulação
+  
+  # Definição dos papéis das variáveis
+  exposure = "ClassSize",     # Tratamento (D)
+  outcome = "Grade",          # Resultado (Y)
+  latent = "U",               # Variável Não Observada / Manipulação (Confounder)
+  
+  # Rótulos para aparecerem bonitos no gráfico
+  labels = c(
+    Grade = "Nota Aluno (Y)",
+    ClassSize = "Tam. Turma (D)",
+    Rule = "Regra/Cutoff (Z)",
+    U = "Manipulação (U)"
+  ),
+  
+  coords = coordenadas
+)
+
+# Criar gráfico e salvar em objeto
+g_dag <- ggdag(dag_maimonides, text = FALSE, use_labels = "label") +
+  theme_dag() +
+  
+  # Personalização das cores
+  geom_dag_node(color = "steelblue", alpha = 0.8) +
+  geom_dag_text(color = "white", fontface = "bold") +
+  
+  # Ajuste dos rótulos (texto vermelho)
+  geom_dag_label_repel(aes(label = label), 
+                       col = "darkred", 
+                       fontface = "bold",
+                       box.padding = 1.5, 
+                       show.legend = FALSE) +
+  
+  labs(
+    title = "DAG: Justificativa para Variáveis Instrumentais",
+    subtitle = "A Regra (Z) isola o efeito do Tamanho (D) na Nota (Y),\nlimpando o viés da Manipulação (U)."
+  )
+
+# Salvar o gráfico na pasta output
+ggsave("../output/Figura_3.14_DAG.png", g_dag,
+       width = 10, height = 6, dpi = 300)
+
+# Exibir o gráfico no knit
+g_dag
+
+```
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+ggsave("../output/Imagem_3.14_DAG.png",
+       plot = g_dag,
+       width = 10,
+       height = 6,
+       dpi = 300)
+```
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+A regressão descontínua baseada na Regra de Maimônides depende da suposição fundamental de que escolas imediatamente acima e abaixo do cutoff são comparáveis. Essa suposição se quebra quando existe manipulação ativa ou ajustes administrativos que deslocam artificialmente o ponto de corte. No caso estudado, há indícios de que diretores possam antecipar matrículas, agrupar turmas ou usar as exceções legais para evitar a divisão de classes, o que rompe a aleatoriedade local exigida por um RDD nítido. Se escolas conseguem manipular o número de alunos para ficar antes ou depois da descontinuidade, então o tamanho real da turma deixa de refletir apenas a regra e passa a capturar decisões estratégicas associadas ao perfil dos alunos e de suas famílias. Nesse cenário, a comparação direta em torno do cutoff perde validade e surge viés de seleção.
+
+Para corrigir essa violação, a solução metodológica é transformar a estratégia em um RDD difuso, ou, mais precisamente, combinar RDD com Variáveis Instrumentais. O tamanho predito da turma, derivado exclusivamente da regra, funciona como um instrumento válido para o tamanho real porque é exógeno à manipulação e capta apenas a variação induzida institucionalmente. A análise causal passa então a usar apenas o componente exógeno da variação no tamanho da turma, limpando o efeito de fatores não observados que influenciam simultaneamente matrículas e desempenho.
+
+O DAG proposto representa graficamente essa estrutura causal. A regra ocupa o papel de instrumento e exerce influência sobre o tamanho da turma, que por sua vez afeta o desempenho escolar. A variável U sintetiza fatores não observados que podem distorcer tanto o tamanho real quanto as notas, como manipulação administrativa, composição socioeconômica ou decisões de alocação interna. O diagrama deixa claro que a validade do estimador depende da ausência de ligação entre a regra e esses fatores de confusão. A abordagem instrumental é apropriada porque utiliza apenas a parcela do tamanho da turma causada pela política, preservando a identificação causal mesmo quando há quebra do RDD nítido por manipulação.
+
+</div>
+
+## **3.15 Instrumentos: IV com regra de Maimônides** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.15 — IV com Regra de Maimônides</b><br><br>
+Use <b>clsize_hat</b> como instrumento para o tamanho real da turma (<b>clsize_snv</b>).  
+Estime a relação com respostas padronizadas e justifique por que o instrumento é válido.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+reg_maimonides_iv <- ivreg(
+  # Fórmula: Y ~ Endógena + Controles | Instrumento + Controles
+  answers_math_std ~ clsize_snv + enrol_ins_snv + factor(area) | 
+    clsize_hat + enrol_ins_snv + factor(area), 
+  data = Maimonides_italia
+)
+
+# Calcular Erros Padrão Clusterizados
+vcov_cluster <- vcovCL(reg_maimonides_iv, cluster = ~clu)
+
+# 3. Gerar a Tabela Final
+stargazer(reg_maimonides_iv, 
+          type = "text", # Mude para "html" para o arquivo final
+          se = list(sqrt(diag(vcov_cluster))), # Inserindo o erro robusto aqui
+          title = "3.12 - Estimação IV (Regra de Maimônides)",
+          covariate.labels = c("Tamanho da Turma (Real)", "Matrícula"),
+          dep.var.labels = "Nota em Matemática",
+          omit = "area",
+          add.lines = list(c("Instrumento", "Regra de Maimônides (clsize_hat)")))
+
+```
+
+```{r include=FALSE}
+
+# Criar tabela IV com SE clusterizados
+tab_iv <- tidy(reg_maimonides_iv) %>%
+  mutate(
+    se_cluster = sqrt(diag(vcov_cluster)),
+    t_value = estimate / se_cluster,
+    p_value = 2 * (1 - pnorm(abs(t_value)))
+  )
+
+# Salvar em Excel
+write_xlsx(
+  list(
+    IV_Maimonides = tab_iv
+  ),
+  path = "../output/Tabela_3.15.xlsx"
+)
+
+```
+
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+Para estimar o efeito causal do tamanho da turma no desempenho, utilizamos o Tamanho Predito pela Regra de Maimônides (clsize_hat) como variável instrumental para o tamanho real (clsize_snv). A estratégia é válida porque o instrumento atende às duas condições fundamentais.
+
+A primeira condição é a relevância. A regra administrativa é um forte determinante do tamanho real das turmas. Como as escolas devem obrigatoriamente dividir uma classe quando o número de alunos ultrapassa o corte estabelecido pela lei, o tamanho predito possui elevada correlação com o tamanho efetivo. Assim, variações no instrumento geram variações reais no tamanho das turmas.
+
+A segunda condição é a exogeneidade. O tamanho predito é definido apenas pela regra burocrática, que depende do número total de matrículas e dos limites legais, e não por decisões humanas. Diferentemente do tamanho observado, ele não é influenciado pela escolha dos pais, que podem procurar escolas com turmas menores, nem pela alocação feita por diretores, que podem direcionar alunos com dificuldades para classes reduzidas. Essas decisões criam viés de seleção e tornam o tamanho real endógeno. Ao utilizar a regra, isolamos apenas a variação exógena gerada pelo mecanismo legal, caracterizando um quase experimento que permite estimar o efeito causal do tamanho da turma sobre o desempenho escolar.
+
+</div>
+
+
+## **3.16 Interpretação: Viés devido à manipulação** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.16 — Discussão do Viés</b><br><br>
+Interprete o coeficiente obtido no modelo IV.  
+Discuta como a manipulação das notas pode enviesar o sinal ou a magnitude das estimativas.
+</div>
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+A interpretação do coeficiente estimado para o tamanho da turma expressa a variação esperada na nota padronizada, medida em desvios-padrão, resultante da entrada de um aluno adicional na sala. O sinal esperado é negativo, pois turmas maiores tendem a apresentar notas menores. Essa relação decorre da redução da atenção individual do professor à medida que o número de alunos aumenta.
+
+A influência da manipulação também desempenha papel relevante. A teoria indica que práticas fraudulentas, como professores ajudando alunos durante provas, tornam-se mais viáveis em classes menores, nas quais há maior controle e menor risco de detecção. Em turmas maiores, a coordenação e execução desse tipo de fraude se tornam mais difíceis, o que reduz a probabilidade de manipulação. Assim, as notas de classes pequenas tendem a estar artificialmente infladas, enquanto as de classes maiores refletem mais fielmente o desempenho real.
+
+A direção do viés decorrente desse processo é para baixo, tornando as estimativas mais negativas do que deveriam ser. Como as notas em turmas pequenas são elevadas artificialmente, a diferença entre classes pequenas e grandes aparenta ser maior do que a verdadeira. Isso leva o estimador a atribuir um efeito benéfico exagerado às turmas menores. Se o efeito causal real fosse, por exemplo, de -0,10, a manipulação poderia fazer parecer que é -0,30. Como -0,30 é menor que -0,10, o viés desloca a estimativa para baixo, superestimando a magnitude negativa do efeito do tamanho da turma sobre o desempenho.
+
+</div>
+
+## **3.17 Dois instrumentos: modelagem com duas endógenas** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.17 — Dois Instrumentos (IV Completo)</b><br><br>
+Considere duas variáveis endógenas: tamanho real da turma (<b>clsize_snv</b>) e manipulação (<b>our_CHEAT_math/our_CHEAT_ital</b>).<br><br>
+Use dois instrumentos: <b>clsize_hat</b> e <b>o_math</b>.  
+Discuta validade, força, exclusão e relevância de cada instrumento.
+</div>
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+A interpretação do coeficiente estimado para o tamanho da turma expressa a variação esperada na nota padronizada, medida em desvios-padrão, resultante da entrada de um aluno adicional na sala. O sinal esperado é negativo, pois turmas maiores tendem a apresentar notas menores. Essa relação decorre da redução da atenção individual do professor à medida que o número de alunos aumenta.
+
+A influência da manipulação também desempenha papel relevante. A teoria indica que práticas fraudulentas, como professores ajudando alunos durante provas, tornam-se mais viáveis em classes menores, nas quais há maior controle e menor risco de detecção. Em turmas maiores, a coordenação e execução desse tipo de fraude se tornam mais difíceis, o que reduz a probabilidade de manipulação. Assim, as notas de classes pequenas tendem a estar artificialmente infladas, enquanto as de classes maiores refletem mais fielmente o desempenho real.
+
+A direção do viés decorrente desse processo é para baixo, tornando as estimativas mais negativas do que deveriam ser. Como as notas em turmas pequenas são elevadas artificialmente, a diferença entre classes pequenas e grandes aparenta ser maior do que a verdadeira. Isso leva o estimador a atribuir um efeito benéfico exagerado às turmas menores. Se o efeito causal real fosse, por exemplo, de -0,10, a manipulação poderia fazer parecer que é -0,30. Como -0,30 é menor que -0,10, o viés desloca a estimativa para baixo, superestimando a magnitude negativa do efeito do tamanho da turma sobre o desempenho.
+
+</div>
+
+## **3.18 Identificação** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.18 — Identificação do Modelo</b><br><br>
+Determine se o sistema com duas variáveis endógenas e dois instrumentos está:  
+— sobre-identificado,  
+— exatamente identificado, ou  
+— não identificado.  
+Justifique formalmente.
+</div>
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+O modelo está identificado porque satisfaz exatamente a condição de ordem para identificação. Essa condição exige que o número de instrumentos excluídos seja igual ou maior que o número de variáveis endógenas. No caso analisado, temos k = 2 variáveis endógenas, que são o tamanho da turma (clsize_snv) e o indício de manipulação (our_CHEAT), e contamos também com m = 2 instrumentos, representados pela Regra de Maimônides (clsize_hat) e pelo Sorteio do Monitoramento (o_math). Como m = k, isto é, 2 = 2, o sistema é exatamente identificado, o que garante solução única para o modelo. Não há instrumentos excedentes que permitam realizar testes de sobreidentificação, como o teste de Sargan, e não há escassez de instrumentos que comprometa a identificação do sistema.
+
+</div>
+
+
+## **3.19 IV com dois instrumentos: estimação final** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.19 — Estimação Final (2SLS)</b><br><br>
+Estime:<br>
+answers_math_std ~ clsize_snv + our_CHEAT_math<br>
+instrumentado por: <b>clsize_hat</b> e <b>o_math</b>.<br><br>
+Inclua controles.  
+Reporte com <b>stargazer</b>.
+</div>
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# ==============================================================================
+# 3.19) IMPACTO DO TAMANHO DA SALA CONTROLANDO PELA MANIPULAÇÃO (IV DUPLO)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# REFAZER O MODELO ANTERIOR (Item 3.12) - Apenas para comparação
+# ------------------------------------------------------------------------------
+# Instrumentamos apenas o tamanho da turma (clsize_snv) pela Regra (clsize_hat)
+reg_maimonides <- ivreg(
+  answers_math_std ~ clsize_snv + enrol_ins_snv + factor(area) | 
+    clsize_hat + enrol_ins_snv + factor(area), 
+  data = Maimonides_italia
+)
+
+# ------------------------------------------------------------------------------
+# RODAR O NOVO MODELO (Item 3.16) - IV com 2 Endógenas e 2 Instrumentos
+# ------------------------------------------------------------------------------
+# Endógenas (Lado Esquerdo): clsize_snv (Tamanho) e our_CHEAT_math (Fraude)
+# Instrumentos (Lado Direito): clsize_hat (Regra) e o_math (Monitor)
+# Controles: enrol_ins_snv e factor(area) (Entram nos DOIS lados!)
+
+reg_maimonides2 <- ivreg(
+  answers_math_std ~ clsize_snv + our_CHEAT_math + enrol_ins_snv + factor(area) | 
+    clsize_hat + o_math         + enrol_ins_snv + factor(area), 
+  data = Maimonides_italia
+)
+
+# ------------------------------------------------------------------------------
+# CALCULAR ERROS PADRÃO CLUSTERIZADOS
+# ------------------------------------------------------------------------------
+# O ajuste de cluster é feito manualmente aqui
+vcov_1 <- vcovCL(reg_maimonides, cluster = ~clu)
+vcov_2 <- vcovCL(reg_maimonides2, cluster = ~clu)
+
+se_1 <- sqrt(diag(vcov_1))
+se_2 <- sqrt(diag(vcov_2))
+
+# ------------------------------------------------------------------------------
+# REPORTAR OS RESULTADOS (TABELA COMPARATIVA)
+# ------------------------------------------------------------------------------
+stargazer(reg_maimonides, reg_maimonides2, 
+          type = "text", # Mude para "html" para o arquivo final
+          out = "../output/Tabela_3.19.html",
+          
+          # Inserindo os erros robustos calculados acima
+          se = list(se_1, se_2),
+          
+          title = "3.16 - Efeito do Tamanho da Turma e Manipulação",
+          
+          # Labels bonitos para facilitar a leitura
+          covariate.labels = c("Tamanho da Turma (Real)", "Fraude (Manipulação)", "Matrícula"),
+          dep.var.labels = "Nota em Matemática",
+          
+          omit = "area", # Oculta dummies de região
+          
+          add.lines = list(c("Instrumentos", "Regra", "Regra + Monitor")),
+          
+          notes = "Modelo 1: Só Tamanho instrumentado. Modelo 2: Tamanho e Fraude instrumentados.")
+
+```
+
+
+
+ggsave("../output/Figura_3.14_DAG.png", g_dag,
+
+## **3.20 Interpretação Final** {.tabset .tabset-fade}
+
+<div style="background-color:#ffffff; padding:15px; border-left:4px solid #003366; border-radius:6px; margin:15px 0; font-family:'Times New Roman';">
+<b>3.20 — Interpretação Final dos Resultados</b><br><br>
+Compare OLS, IV com 1 instrumento e IV com 2 instrumentos.  
+Explique por que os coeficientes mudam e o que isso revela sobre manipulação das notas e tamanho da turma.
+</div>
+
+
+<div style="background-color:#ffffff; padding:15px; border-radius:6px; margin:15px 0; font-family: 'Times New Roman'; text-align: justify;">
+
+**Explicação:**
+
+O coeficiente do tamanho da sala diminuiu em magnitude depois que incluímos a variável de fraude instrumentada no modelo. Ele também tende a perder significância estatística. Isso ocorre porque antes o modelo sofria de viés de variável omitida. A fraude estava escondida no erro e era correlacionada com o tamanho das turmas, já que turmas menores tinham maior probabilidade de manipulação. O modelo anterior atribuía ao tamanho da turma um efeito que, na verdade, era parcialmente causado pela fraude. Com a inclusão de dois instrumentos, conseguimos separar o efeito real do tamanho da sala do efeito da manipulação dos testes.
+
+Isso revela que os ganhos de aprendizado observados anteriormente em turmas menores eram em grande parte artificiais. Esses ganhos eram inflados pela maior facilidade de fraude nas turmas pequenas, e não por um efeito pedagógico real.
+
+**Conclusão do Trabalho:**
+
+Depois de controlar para a fraude por meio do instrumento de monitoramento, não encontramos evidências robustas de que reduzir o tamanho da turma melhora o aprendizado na amostra estudada. O aparente melhor desempenho das turmas menores no Sul da Itália era resultado de manipulação e não de ensino mais eficiente.
+</div>
+
+
